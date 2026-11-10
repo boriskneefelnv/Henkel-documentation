@@ -521,7 +521,7 @@ tslib/tslib.es6.js:
   .xl-tbl td{border:0; border-right:1px solid var(--line-soft); padding:10px 16px; text-align:center; min-width:52px; font-weight:bold; background:#fff; font-size:.9rem;}
   .xl-tbl th:last-child, .xl-tbl td:last-child{border-right:0;}
   .reg-tbl td{padding:6px 10px; min-width:24px; font-size:.82rem;}
-  .reg-tbl td.reg-leeg{background:#F6F9FC; min-width:14px;}
+  .reg-tbl td.reg-leeg{background:#FFFFFF; min-width:18px;}
   .mail-chips{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:13px; align-items:center;}
   .mail-chip{font-family:var(--disp); font-size:.6rem; font-weight:bold; letter-spacing:.14em; text-transform:uppercase; padding:5px 12px; border-radius:4px; border:1px solid var(--hair); background:var(--ice); color:var(--grey);}
   .mail-chip.ic{color:var(--dblue); border-color:var(--ice2); background:#EEF4F8;}
@@ -903,9 +903,9 @@ tslib/tslib.es6.js:
           <button class="btn-copy" id="xlCopy" type="button" title="Zet CVO/EUR1/ATR/COC/HS tab-gescheiden op het klembord: in Excel plakken vult 5 kolommen in &eacute;&eacute;n keer">Kopieer voor Excel</button>
           <span class="copy-fb" id="xlFb">Gekopieerd &#10003;</span>
         </div>
-        <div class="mail-docs-label" style="margin-top:14px">Excel-regels documentregistratie <span style="text-transform:none;font-weight:400">(master &middot; 5 lege kolommen (BP File, Reference, IC/EC, Dest, Loading date &mdash; die vult de macro) &middot; documentcode &middot; documentsoort &middot; datum van vandaag &mdash; &eacute;&eacute;n rij per aangevraagd document, alles in &eacute;&eacute;n keer plakken)</span></div>
+        <div class="mail-docs-label" style="margin-top:14px">Excel-regels documentregistratie <span style="text-transform:none;font-weight:400">(Master &middot; 5 witte kolommen (BP File, Reference, IC/EC, Dest, Loading date &mdash; die vult de macro) &middot; Document code &middot; Description &middot; Request date (vandaag) &mdash; &eacute;&eacute;n rij per aangevraagd document, alles in &eacute;&eacute;n keer plakken)</span></div>
         <div id="regWrap" style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
-          <table class="xl-tbl reg-tbl"><thead><tr><th>Master</th><th></th><th></th><th></th><th></th><th></th><th>Code</th><th>Document</th><th>Datum</th></tr></thead>
+          <table class="xl-tbl reg-tbl"><thead><tr><th>Master</th><th></th><th></th><th></th><th></th><th></th><th>Document code</th><th>Description</th><th>Request date</th></tr></thead>
           <tbody id="regBody"></tbody></table>
           <button class="btn-copy" id="regCopy" type="button" title="Zet per aangevraagd document een rij op het klembord (tab-gescheiden): master, 5 lege kolommen, documentcode, documentsoort en de datum van vandaag. In Excel plakken vult alle rijen in &eacute;&eacute;n keer">Kopieer voor documentregistratie</button>
           <span class="copy-fb" id="regFb">Gekopieerd &#10003;</span>

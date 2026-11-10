@@ -139,7 +139,7 @@ Daarna wordt per set+IDH **naar boven afgerond** op hele colli: floor per regel,
   - Bij Casablanca komt er een EUR-1-retouradres bij.
 - **Excel-regel CVO | EUR1 | ATR | COC | HS:** "A" als het document wordt aangevraagd, anders 0. COC = KvK-legalisatie. HS = aantal unieke HS-codes min 1.
 - **Excel-regels documentregistratie** (toegevoegd 10-11-2026): per aangevinkt document één rij, tab-gescheiden, met de knop "Kopieer voor documentregistratie".
-  - Kolommen: master (= Ref/NV-nummer) | 5 lege kolommen | documentcode | documentsoort | datum van vandaag (dd-mm-jjjj). Dat past op het registratieblad A Master · B BP File · C Reference · D IC/EC · E Dest · F Loading date · G Document code · H Description · I Request date. De macro `Documentregistratie_Aanvullen` (`macros/`) vult B–F uit blad Uit van de planning.
+  - Kolommen: master (= Ref/NV-nummer) | 5 lege kolommen | documentcode | documentsoort | datum van vandaag (dd-mm-jjjj). Dat past op het registratieblad A Master · B BP File · C Reference · D IC/EC · E Dest · F Loading date · G Document code · H Description · I Request date. De macro `Documentregistratie_Aanvullen` (`macros/`) werkt alleen op tabblad DCMAASVLAKTE en houdt de groene kolommen B–F steeds gelijk aan blad Uit van de planning; andere kolommen raakt hij niet aan.
   - Codes: 71001 EXA, 72001 ATR, 72002 EUR.1, 72200 CVO, 72301 LEGALISEREN (kvk, legalised invoice en gelegaliseerde factuur samen worden één rij).
   - Voor copy, coc en embassy is geen code bekend. Daarvoor komt geen rij; de tool meldt dat.
   - De knop werkt pas als Ref is ingevuld.

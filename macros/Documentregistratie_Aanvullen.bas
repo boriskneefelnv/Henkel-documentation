@@ -2,32 +2,34 @@ Attribute VB_Name = "DocumentregistratieAanvullen"
 Option Explicit
 
 '=====================================================================================
-' Documentregistratie aanvullen vanuit de Henkel-planning
+' Documentregistratie bijwerken vanuit de Henkel-planning
 '
-' Werkt op het ACTIEVE werkblad (de documentregistratie). Kop op rij 1 met o.a.:
+' Werkt UITSLUITEND op tabblad "DCMAASVLAKTE". Kop op rij 1 met o.a.:
 '   Master | BP File | Reference | IC/EC | Dest | Loading date | Document code | ...
+'
 ' Per regel wordt het masternummer (kolom Master) opgezocht in blad "Uit" van
-' New_planning_Henkel.xlsm (tabel HenkelPlanning) en worden aangevuld:
+' New_planning_Henkel.xlsm (tabel HenkelPlanning). De vijf GROENE kolommen worden
+' daarmee bijgewerkt, ook als er al iets in staat, zodat een wijziging in blad Uit
+' altijd doorkomt:
 '   BP File      <- BP FILE
 '   Reference    <- SHIPMENT
 '   IC/EC        <- EC/IC
 '   Dest         <- DEST
 '   Loading date <- LAAD DATUM (of LD DATE, als de kolom zo heet)
 '
-' - Alleen LEGE cellen worden gevuld; wat er al staat blijft staan
-'   (zet OVERSCHRIJVEN op True om alles opnieuw te vullen).
-' - Staat de planning niet open, dan vraagt de macro om het bestand en opent hij
-'   het alleen-lezen.
-' - Masters die niet in de planning staan worden lichtrood gemarkeerd.
-' - Komt een master meerdere keren voor in de planning, dan wint de regel die nog
-'   niet geladen is (LOADED <> Y); daarna de regel met de laatste laaddatum.
-' - Placeholderdatums (jaar < 2000, zoals 01-01-1900) worden niet overgenomen.
+' Alle andere kolommen (Master, Document code, Description, Request date, Draft
+' received, ... Status) worden NOOIT aangeraakt: geen waarden, geen opmaak.
+' Staat een master niet in de planning, dan blijft die regel helemaal ongewijzigd;
+' de macro noemt hem alleen in de melding.
+' Komt een master meerdere keren voor in de planning, dan wint de regel die nog
+' niet geladen is (LOADED <> Y); daarna de regel met de laatste laaddatum.
+' Placeholderdatums (jaar < 2000, zoals 01-01-1900) gelden als "geen laaddatum".
+' De planning zelf wordt alleen gelezen.
 '=====================================================================================
 
+Private Const DOEL_BLAD As String = "DCMAASVLAKTE"
 Private Const BRON_BLAD As String = "Uit"
 Private Const BRON_TABEL As String = "HenkelPlanning"
-Private Const OVERSCHRIJVEN As Boolean = False
-Private Const KLEUR_NIET_GEVONDEN As Long = 13551615    ' RGB(255,199,206) lichtrood
 
 Public Sub Documentregistratie_Aanvullen()
     Dim wsDoel As Worksheet, wsBron As Worksheet
@@ -37,12 +39,14 @@ Public Sub Documentregistratie_Aanvullen()
     Dim idx As Object, dubbel As Object
     Dim r As Long, laatste As Long, br As Long, oud As Long
     Dim sleutelWaarde As String
-    Dim nGevuld As Long, nNietGevonden As Long, nRegels As Long
+    Dim nGewijzigd As Long, nNietGevonden As Long, nRegels As Long, nRegelsGewijzigd As Long, nu As Long
     Dim nietGevonden As String, dubbelLijst As String, k As Variant
 
-    Set wsDoel = ActiveSheet
-    If LCase$(Trim$(wsDoel.Name)) = LCase$(BRON_BLAD) Then
-        MsgBox "Start de macro vanaf het blad van de documentregistratie, niet vanaf blad '" & BRON_BLAD & "'.", vbExclamation
+    '--- alleen tabblad DCMAASVLAKTE ---
+    Set wsDoel = ZoekDoelBlad()
+    If wsDoel Is Nothing Then
+        MsgBox "Tabblad '" & DOEL_BLAD & "' is niet gevonden in de open werkmappen." & vbCrLf & _
+               "De macro past alleen dat tabblad aan en doet nu niets.", vbCritical
         Exit Sub
     End If
 
@@ -54,16 +58,16 @@ Public Sub Documentregistratie_Aanvullen()
     dDest = DoelKolom(wsDoel, "Dest")
     dLaad = DoelKolom(wsDoel, "Loading date")
     If dMaster = 0 Then
-        MsgBox "Kolom 'Master' niet gevonden op rij 1 van blad '" & wsDoel.Name & "'.", vbCritical
+        MsgBox "Kolom 'Master' niet gevonden op rij 1 van tabblad '" & wsDoel.Name & "'.", vbCritical
         Exit Sub
     End If
     If dBp + dRef + dEcIc + dDest + dLaad = 0 Then
-        MsgBox "Geen van de kolommen BP File, Reference, IC/EC, Dest of Loading date gevonden op rij 1.", vbCritical
+        MsgBox "Geen van de kolommen BP File, Reference, IC/EC, Dest of Loading date gevonden op rij 1 van '" & wsDoel.Name & "'.", vbCritical
         Exit Sub
     End If
 
     '--- planning zoeken (open werkmap, anders laten kiezen) ---
-    Set wsBron = ZoekBronBlad()
+    Set wsBron = ZoekBronBlad(wsDoel)
     If wsBron Is Nothing Then Exit Sub
     If Not LeesBron(wsBron, bron) Then
         MsgBox "In blad '" & wsBron.Name & "' van " & wsBron.Parent.Name & " is geen kop met MASTER en BP FILE gevonden.", vbCritical
@@ -82,7 +86,7 @@ Public Sub Documentregistratie_Aanvullen()
         Exit Sub
     End If
 
-    '--- idx master -> beste bronregel ---
+    '--- index master -> beste bronregel ---
     Set idx = CreateObject("Scripting.Dictionary")
     Set dubbel = CreateObject("Scripting.Dictionary")
     For br = 2 To UBound(bron, 1)
@@ -98,28 +102,32 @@ Public Sub Documentregistratie_Aanvullen()
         End If
     Next br
 
-    '--- doelregels aanvullen ---
+    '--- regels op DCMAASVLAKTE bijwerken (alleen de groene kolommen) ---
     laatste = wsDoel.Cells(wsDoel.Rows.Count, dMaster).End(xlUp).Row
     If laatste < 2 Then
-        MsgBox "Er staan nog geen masternummers in kolom 'Master'.", vbInformation
+        MsgBox "Er staan nog geen masternummers in kolom 'Master' van '" & wsDoel.Name & "'.", vbInformation
         Exit Sub
     End If
 
+    Dim opBlad As String
     Application.ScreenUpdating = False
     For r = 2 To laatste
         sleutelWaarde = Sleutel(wsDoel.Cells(r, dMaster).Value)
         If Len(sleutelWaarde) > 0 Then
             nRegels = nRegels + 1
+            opBlad = opBlad & "|" & sleutelWaarde
             If idx.Exists(sleutelWaarde) Then
                 br = idx(sleutelWaarde)
-                If wsDoel.Cells(r, dMaster).Interior.Color = KLEUR_NIET_GEVONDEN Then wsDoel.Cells(r, dMaster).Interior.Pattern = xlNone
-                nGevuld = nGevuld + Zet(wsDoel, r, dBp, Waarde(bron, br, cBp), False)
-                nGevuld = nGevuld + Zet(wsDoel, r, dRef, Waarde(bron, br, cShip), False)
-                nGevuld = nGevuld + Zet(wsDoel, r, dEcIc, UCase$(Trim$(CStr(Waarde(bron, br, cEcIc)))), False)
-                nGevuld = nGevuld + Zet(wsDoel, r, dDest, UCase$(Trim$(CStr(Waarde(bron, br, cDest)))), False)
-                nGevuld = nGevuld + Zet(wsDoel, r, dLaad, Datum(Waarde(bron, br, cLaad)), True)
+                nu = 0
+                ' alleen bijwerken als de kolom in de planning bestaat (anders niets wissen)
+                If cBp > 0 Then nu = nu + Bijwerken(wsDoel, r, dBp, Getal(Waarde(bron, br, cBp)), False)
+                If cShip > 0 Then nu = nu + Bijwerken(wsDoel, r, dRef, Getal(Waarde(bron, br, cShip)), False)
+                If cEcIc > 0 Then nu = nu + Bijwerken(wsDoel, r, dEcIc, Tekst(Waarde(bron, br, cEcIc)), False)
+                If cDest > 0 Then nu = nu + Bijwerken(wsDoel, r, dDest, Tekst(Waarde(bron, br, cDest)), False)
+                If cLaad > 0 Then nu = nu + Bijwerken(wsDoel, r, dLaad, Datum(Waarde(bron, br, cLaad)), True)
+                nGewijzigd = nGewijzigd + nu
+                If nu > 0 Then nRegelsGewijzigd = nRegelsGewijzigd + 1
             Else
-                wsDoel.Cells(r, dMaster).Interior.Color = KLEUR_NIET_GEVONDEN
                 nNietGevonden = nNietGevonden + 1
                 If InStr(1, "," & nietGevonden & ",", "," & sleutelWaarde & ",") = 0 Then
                     nietGevonden = nietGevonden & IIf(Len(nietGevonden) > 0, ",", "") & sleutelWaarde
@@ -130,40 +138,57 @@ Public Sub Documentregistratie_Aanvullen()
     Application.ScreenUpdating = True
 
     '--- melding ---
-    Dim opBlad As String
-    opBlad = "|" & Join(MastersOpBlad(wsDoel, dMaster, laatste), "|") & "|"
+    opBlad = opBlad & "|"
     For Each k In dubbel.Keys
         If InStr(1, opBlad, "|" & k & "|") > 0 Then
             dubbelLijst = dubbelLijst & IIf(Len(dubbelLijst) > 0, ", ", "") & k
         End If
     Next k
 
-    Dim tekst As String
-    tekst = nRegels & " regel(s) met een masternummer verwerkt; " & nGevuld & " cel(len) ingevuld." & vbCrLf & _
+    Dim tekstMelding As String
+    tekstMelding = nRegels & " regel(s) met een masternummer gecontroleerd op '" & wsDoel.Name & "'." & vbCrLf & _
+            nRegelsGewijzigd & " regel(s) bijgewerkt, " & nGewijzigd & " cel(len) gewijzigd in BP File / Reference / IC/EC / Dest / Loading date." & vbCrLf & _
             "Bron: " & wsBron.Parent.Name & " / blad " & wsBron.Name & "."
     If nNietGevonden > 0 Then
-        tekst = tekst & vbCrLf & vbCrLf & nNietGevonden & " regel(s) niet gevonden in de planning (lichtrood gemarkeerd):" & _
+        tekstMelding = tekstMelding & vbCrLf & vbCrLf & nNietGevonden & " regel(s) niet gevonden in de planning (ongewijzigd gelaten):" & _
                 vbCrLf & Replace(nietGevonden, ",", ", ")
     End If
     If Len(dubbelLijst) > 0 Then
-        tekst = tekst & vbCrLf & vbCrLf & "Let op: deze masters staan meerdere keren in de planning (open regel / laatste laaddatum gebruikt):" & _
+        tekstMelding = tekstMelding & vbCrLf & vbCrLf & "Let op: deze masters staan meerdere keren in de planning (open regel / laatste laaddatum gebruikt):" & _
                 vbCrLf & dubbelLijst
     End If
-    If cLaad = 0 Then tekst = tekst & vbCrLf & vbCrLf & "Kolom LAAD DATUM / LD DATE niet gevonden in de planning: Loading date is niet ingevuld."
-    MsgBox tekst, IIf(nNietGevonden > 0, vbExclamation, vbInformation), "Documentregistratie aanvullen"
+    If cLaad = 0 Then tekstMelding = tekstMelding & vbCrLf & vbCrLf & "Kolom LAAD DATUM / LD DATE niet gevonden in de planning: Loading date is niet bijgewerkt."
+    MsgBox tekstMelding, IIf(nNietGevonden > 0, vbExclamation, vbInformation), "Documentregistratie bijwerken"
 End Sub
 
-'--- schrijft een waarde in een lege cel (of altijd bij OVERSCHRIJVEN); geeft 1 terug als er geschreven is
-Private Function Zet(ws As Worksheet, ByVal r As Long, ByVal c As Long, ByVal v As Variant, ByVal isDatum As Boolean) As Long
+'--- zet de waarde uit de planning in een groene cel als die afwijkt; geeft 1 terug bij een wijziging
+Private Function Bijwerken(ws As Worksheet, ByVal r As Long, ByVal c As Long, ByVal v As Variant, ByVal isDatum As Boolean) As Long
+    Dim cel As Range
     If c = 0 Then Exit Function
-    If IsEmpty(v) Then Exit Function
-    If VarType(v) = vbString Then If Len(Trim$(v)) = 0 Then Exit Function
-    If Not OVERSCHRIJVEN Then
-        If Len(Trim$(CStr(ws.Cells(r, c).Value))) > 0 Then Exit Function
+    Set cel = ws.Cells(r, c)
+    If Gelijk(cel.Value, v, isDatum) Then Exit Function
+    If IsEmpty(v) Then
+        cel.ClearContents                 ' waarde weg, opmaak (groen) blijft
+    Else
+        cel.Value = v
+        If isDatum Then cel.NumberFormat = "dd-mm-yyyy"
     End If
-    ws.Cells(r, c).Value = v
-    If isDatum Then ws.Cells(r, c).NumberFormat = "dd-mm-yyyy"
-    Zet = 1
+    Bijwerken = 1
+End Function
+
+Private Function Gelijk(ByVal huidig As Variant, ByVal nieuw As Variant, ByVal isDatum As Boolean) As Boolean
+    If IsError(huidig) Then Exit Function
+    If IsEmpty(nieuw) Then
+        Gelijk = (Len(Trim$(CStr(huidig))) = 0)
+        Exit Function
+    End If
+    If isDatum Then
+        If IsDate(huidig) Or IsNumeric(huidig) Then
+            If Len(Trim$(CStr(huidig))) > 0 Then Gelijk = (Int(CDbl(CDate(huidig))) = Int(CDbl(nieuw)))
+        End If
+        Exit Function
+    End If
+    Gelijk = (UCase$(Trim$(CStr(huidig))) = UCase$(Trim$(CStr(nieuw))))
 End Function
 
 '--- masternummer -> alleen cijfers (vangt tekst/getal, spaties en regeleindes af)
@@ -184,9 +209,30 @@ Private Function Sleutel(ByVal v As Variant) As String
 End Function
 
 Private Function Waarde(bron As Variant, ByVal r As Long, ByVal c As Long) As Variant
-    If c = 0 Then Waarde = Empty: Exit Function
-    If IsError(bron(r, c)) Then Waarde = Empty: Exit Function
+    Waarde = Empty
+    If c = 0 Then Exit Function
+    If IsError(bron(r, c)) Then Exit Function
     Waarde = bron(r, c)
+End Function
+
+'--- getal als getal (BP File, Reference), anders de tekst; leeg blijft leeg
+Private Function Getal(ByVal v As Variant) As Variant
+    Getal = Empty
+    If IsEmpty(v) Then Exit Function
+    If VarType(v) = vbString Then
+        v = Trim$(Replace(Replace(v, vbLf, ""), vbCr, ""))
+        If Len(v) = 0 Then Exit Function
+        If v Like String(Len(v), "#") Then Getal = CDbl(v) Else Getal = v
+    Else
+        Getal = v
+    End If
+End Function
+
+Private Function Tekst(ByVal v As Variant) As Variant
+    Tekst = Empty
+    If IsEmpty(v) Then Exit Function
+    v = UCase$(Trim$(Replace(Replace(CStr(v), vbTab, ""), vbLf, "")))
+    If Len(v) > 0 Then Tekst = v
 End Function
 
 '--- laaddatum: alleen echte datums (jaar >= 2000), anders leeg
@@ -243,6 +289,19 @@ Private Function Norm(ByVal v As Variant) As String
     Norm = UCase$(Replace(Replace(Replace(CStr(v), " ", ""), vbLf, ""), Chr(160), ""))
 End Function
 
+'--- tabblad DCMAASVLAKTE: eerst in de actieve werkmap, anders in een andere open werkmap
+Private Function ZoekDoelBlad() As Worksheet
+    Dim wb As Workbook, ws As Worksheet
+    For Each ws In ActiveWorkbook.Worksheets
+        If UCase$(Trim$(ws.Name)) = UCase$(DOEL_BLAD) Then Set ZoekDoelBlad = ws: Exit Function
+    Next ws
+    For Each wb In Application.Workbooks
+        For Each ws In wb.Worksheets
+            If UCase$(Trim$(ws.Name)) = UCase$(DOEL_BLAD) Then Set ZoekDoelBlad = ws: Exit Function
+        Next ws
+    Next wb
+End Function
+
 '--- leest de planning als array met de koprij als rij 1
 Private Function LeesBron(ws As Worksheet, ByRef bron As Variant) As Boolean
     Dim lo As ListObject, r As Long, c As Long, kopRij As Long, laatsteRij As Long, laatsteKol As Long
@@ -272,8 +331,8 @@ Private Function LeesBron(ws As Worksheet, ByRef bron As Variant) As Boolean
     LeesBron = True
 End Function
 
-'--- blad "Uit" in een open werkmap; anders het planningbestand laten kiezen
-Private Function ZoekBronBlad() As Worksheet
+'--- blad "Uit" in een open werkmap; anders het planningbestand laten kiezen (alleen-lezen)
+Private Function ZoekBronBlad(wsDoel As Worksheet) As Worksheet
     Dim wb As Workbook, ws As Worksheet, f As Variant, bron As Variant
     For Each wb In Application.Workbooks
         For Each ws In wb.Worksheets
@@ -285,12 +344,10 @@ Private Function ZoekBronBlad() As Worksheet
     f = Application.GetOpenFilename("Excel-bestanden (*.xlsm;*.xlsx;*.xls),*.xlsm;*.xlsx;*.xls", , _
         "Kies de planning (New_planning_Henkel.xlsm) met blad '" & BRON_BLAD & "'")
     If VarType(f) = vbBoolean Then Exit Function
-    Dim actief As Worksheet
-    Set actief = ActiveSheet
     Application.ScreenUpdating = False
     Set wb = Workbooks.Open(Filename:=f, ReadOnly:=True, UpdateLinks:=0)
-    actief.Parent.Activate
-    actief.Activate
+    wsDoel.Parent.Activate
+    wsDoel.Activate
     Application.ScreenUpdating = True
     On Error Resume Next
     Set ZoekBronBlad = wb.Worksheets(BRON_BLAD)
@@ -298,14 +355,4 @@ Private Function ZoekBronBlad() As Worksheet
     If ZoekBronBlad Is Nothing Then
         MsgBox "In '" & wb.Name & "' staat geen blad '" & BRON_BLAD & "'.", vbCritical
     End If
-End Function
-
-Private Function MastersOpBlad(ws As Worksheet, ByVal c As Long, ByVal laatste As Long) As Variant
-    Dim r As Long, uit() As String, n As Long
-    ReDim uit(0 To laatste)
-    For r = 2 To laatste
-        uit(n) = Sleutel(ws.Cells(r, c).Value)
-        n = n + 1
-    Next r
-    MastersOpBlad = uit
 End Function
