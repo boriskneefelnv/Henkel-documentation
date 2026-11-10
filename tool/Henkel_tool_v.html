@@ -903,11 +903,11 @@ tslib/tslib.es6.js:
           <button class="btn-copy" id="xlCopy" type="button" title="Zet CVO/EUR1/ATR/COC/HS tab-gescheiden op het klembord: in Excel plakken vult 5 kolommen in &eacute;&eacute;n keer">Kopieer voor Excel</button>
           <span class="copy-fb" id="xlFb">Gekopieerd &#10003;</span>
         </div>
-        <div class="mail-docs-label" style="margin-top:14px">Excel-regels documentregistratie <span style="text-transform:none;font-weight:400">(dossiernummer &middot; 5 lege kolommen &middot; documentcode &middot; documentsoort &middot; datum van vandaag &mdash; &eacute;&eacute;n rij per aangevraagd document, alles in &eacute;&eacute;n keer plakken)</span></div>
+        <div class="mail-docs-label" style="margin-top:14px">Excel-regels documentregistratie <span style="text-transform:none;font-weight:400">(dossiernummer &middot; 4 lege kolommen &middot; documentcode &middot; documentsoort &middot; datum van vandaag &mdash; &eacute;&eacute;n rij per aangevraagd document, alles in &eacute;&eacute;n keer plakken)</span></div>
         <div id="regWrap" style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
-          <table class="xl-tbl reg-tbl"><thead><tr><th>Dossier</th><th></th><th></th><th></th><th></th><th></th><th>Code</th><th>Document</th><th>Datum</th></tr></thead>
+          <table class="xl-tbl reg-tbl"><thead><tr><th>Dossier</th><th></th><th></th><th></th><th></th><th>Code</th><th>Document</th><th>Datum</th></tr></thead>
           <tbody id="regBody"></tbody></table>
-          <button class="btn-copy" id="regCopy" type="button" title="Zet per aangevraagd document een rij op het klembord (tab-gescheiden): dossiernummer, 5 lege kolommen, documentcode, documentsoort en de datum van vandaag. In Excel plakken vult alle rijen in &eacute;&eacute;n keer">Kopieer voor documentregistratie</button>
+          <button class="btn-copy" id="regCopy" type="button" title="Zet per aangevraagd document een rij op het klembord (tab-gescheiden): dossiernummer, 4 lege kolommen, documentcode, documentsoort en de datum van vandaag. In Excel plakken vult alle rijen in &eacute;&eacute;n keer">Kopieer voor documentregistratie</button>
           <span class="copy-fb" id="regFb">Gekopieerd &#10003;</span>
         </div>
         <div class="dl-note" id="regNote" hidden style="margin:6px 0 12px;max-width:620px"></div>
@@ -4520,7 +4520,7 @@ function renderXlRow() {
 
 /* ===== Excel-regels documentregistratie =====
    Per aangevraagd document één rij, in de kolomvolgorde van de documentregistratie:
-   dossiernummer | 5 lege kolommen | documentcode | documentsoort | datum van vandaag.
+   dossiernummer | 4 lege kolommen | documentcode | documentsoort | datum van vandaag.
    Het dossiernummer is de Ref (NV-nummer) uit het mailpaneel. De codes zijn die van de
    DC Maasvlakte-documentregistratie (71001 EXA, 72200 CVO, 72002 EUR.1, ...).
    Documenten zonder bekende code (copy, coc, embassy) krijgen geen rij en worden gemeld. */
@@ -4545,9 +4545,9 @@ function regExportRows(tokens, dossier, datum) {
     if (!m) { if (zonderCode.indexOf(t) < 0) zonderCode.push(t); continue; }
     if (gezien.has(m[0])) continue;          /* bv. kvk + gelegaliseerde factuur = één legalisatie-regel */
     gezien.add(m[0]);
-    rows.push([dossier, '', '', '', '', '', m[0], m[1], datum]);
+    rows.push([dossier, '', '', '', '', m[0], m[1], datum]);
   }
-  rows.sort((a, b) => a[6].localeCompare(b[6]));
+  rows.sort((a, b) => a[5].localeCompare(b[5]));
   return { rows, zonderCode };
 }
 /* KC-REG-END */
@@ -4562,8 +4562,8 @@ function renderRegRows() {
   const r = regHuidig();
   const dossier = el('mailRef').value.trim();
   body.innerHTML = r.rows.length
-    ? r.rows.map(row => '<tr>' + row.map((v, i) => '<td' + (i >= 1 && i <= 5 ? ' class="reg-leeg"' : '') + '>' + esc(v || (i === 0 ? '\u2026' : '')) + '</td>').join('') + '</tr>').join('')
-    : '<tr><td colspan="9" style="font-weight:400;color:var(--muted)">Nog geen documenten aangevinkt.</td></tr>';
+    ? r.rows.map(row => '<tr>' + row.map((v, i) => '<td' + (i >= 1 && i <= 4 ? ' class="reg-leeg"' : '') + '>' + esc(v || (i === 0 ? '\u2026' : '')) + '</td>').join('') + '</tr>').join('')
+    : '<tr><td colspan="8" style="font-weight:400;color:var(--muted)">Nog geen documenten aangevinkt.</td></tr>';
   const meld = [];
   if (!dossier && r.rows.length) meld.push('Vul eerst <b>Ref (NV-nummer)</b> in: dat is het dossiernummer in de eerste kolom.');
   if (r.zonderCode.length) meld.push('Geen documentcode bekend voor: <b>' + esc(r.zonderCode.join(', ')) + '</b> \u2014 daarvoor komt geen rij; voeg die zelf toe.');
