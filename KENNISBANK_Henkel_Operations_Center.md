@@ -406,3 +406,7 @@ Beide modules gebruiken hetzelfde scherm en dezelfde ingelezen bestanden (`toMod
     - `NAMEN` (de browsertitel) mist `fs` en `ob`.
 11. **De footer is onvolledig.** Hij noemt de bladen Douane inputblad, Pallets en Certificaten niet, en de bibliotheekmelding noemt ExcelJS "de controle-Excel bouwen", terwijl ExcelJS alleen voor het klantrapport wordt gebruikt.
 12. **De contactpersoon van de transportopdracht (`TO_CONTACT`) staat vast in de code** (naam en e-mail). Een collega kan alleen de naam per keer overschrijven, het e-mailadres in de kop niet.
+13. **Het Dashboard zoekt een kolom die niet meer bestaat.** Het leest de laaddatum uit kolom `LD DATE`, maar in de huidige `New_planning_Henkel.xlsm` heet die kolom **`LAAD DATUM`**.
+    - Daardoor heeft geen enkel dossier een laaddatum: de regels MRN, Check planning en Documenten gaan nooit af.
+    - Op de data van 10-11-2026 toont het dashboard 15 acties in plaats van 28, en 0 in plaats van 7 te late acties.
+    - Zie `KENNISBANK_Planning_en_Documentregistratie.md`, A6.
