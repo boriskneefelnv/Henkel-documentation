@@ -17,7 +17,6 @@ Er zijn twee versies met hetzelfde gedrag:
 | Bestand | Voor |
 |---|---|
 | `Documentregistratie_Aanvullen.osts.ts` | **Excel-script** (Office Script, Excel voor het web / Microsoft 365, tabblad *Automatiseren*) |
-| `Planning_Exporteren.osts.ts` | Hulpscript, alleen nodig als DCMAASVLAKTE en blad Uit in **verschillende bestanden** staan (via Power Automate) |
 | `Documentregistratie_Aanvullen.bas` | De VBA-macro (Excel desktop), voor wie die liever gebruikt |
 
 ## Regels (beide versies)
@@ -36,9 +35,4 @@ Er zijn twee versies met hetzelfde gedrag:
 
 **Belangrijk:** een Excel-script kan alleen de werkmap lezen waarin het draait. Blad **Uit** (tabel `HenkelPlanning`) moet dus in **dezelfde werkmap** staan als DCMAASVLAKTE.
 
-### Staat de planning in een ander bestand? Gebruik Power Automate
-1. Maak een flow met **Excel Online (Business) → Script uitvoeren** op het planningbestand, met het script `Planning_Exporteren` (opslaan zoals hierboven).
-2. Voeg een tweede **Script uitvoeren** toe op het registratiebestand met `Documentregistratie aanvullen`. Vul bij de parameter **planning** het *result* van stap 1 in.
-3. De flow kun je handmatig starten of laten inplannen (bijvoorbeeld elk uur).
-
-Power Automate werkt met bestanden in OneDrive of SharePoint. Draait het script daar niet op een .xlsm-bestand, sla de werkmap dan op als .xlsx (de VBA-macro gaat daarbij verloren).
+Het script start direct, zonder invoerscherm. Staat er nog een oude versie in Excel die om "planning" vraagt? Vervang dan de hele code door de nieuwe versie.

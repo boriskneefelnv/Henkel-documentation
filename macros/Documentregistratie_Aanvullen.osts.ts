@@ -18,12 +18,8 @@
  * Dubbele masters in de planning: de nog niet geladen regel wint, daarna de laatste
  * laaddatum. Placeholderdatums (jaar < 2000, zoals 01-01-1900) gelden als leeg.
  *
- * BRON VAN DE PLANNING
- * - Standaard: tabel "HenkelPlanning" of blad "Uit" in DEZELFDE werkmap.
- *   (Een Office Script kan geen andere bestanden openen.)
- * - Staat de planning in een ander bestand: geef de planningdata mee via de parameter
- *   "planning" vanuit Power Automate (gebruik daarvoor het script
- *   Planning_Exporteren.osts.ts op het planningbestand).
+ * Bron: tabel "HenkelPlanning" / blad "Uit" in DEZELFDE werkmap.
+ * Het script start direct, zonder invoerscherm.
  */
 
 type Cel = string | number | boolean;
@@ -33,7 +29,7 @@ const BRON_BLAD = "Uit";
 const BRON_TABEL = "HenkelPlanning";
 const DATUM_GRENS = 36526; // 01-01-2000 als Excel-datumgetal
 
-function main(workbook: ExcelScript.Workbook, planning?: string[][]): string {
+function main(workbook: ExcelScript.Workbook) {
   // --- alleen tabblad DCMAASVLAKTE ---
   const doel = workbook.getWorksheets().find(ws => ws.getName().trim().toUpperCase() === DOEL_BLAD);
   if (!doel) return meld(`Tabblad '${DOEL_BLAD}' niet gevonden. Er is niets aangepast.`);
@@ -58,24 +54,17 @@ function main(workbook: ExcelScript.Workbook, planning?: string[][]): string {
   }
 
   // --- planning lezen ---
-  // planning uit Power Automate komt als tekst; getallen (ook datumgetallen) terug naar getal
-  let bron: Cel[][] | undefined = planning && planning.length > 1
-    ? planning.map(r => r.map(c => (/^\d+(\.\d+)?$/.test(String(c).trim()) ? Number(String(c).trim()) : c) as Cel))
-    : undefined;
-  let bronNaam = "parameter 'planning' (Power Automate)";
-  if (!bron) {
-    const t = workbook.getTable(BRON_TABEL);
-    if (t) {
-      bron = t.getRange().getValues() as Cel[][];
-      bronNaam = `tabel ${BRON_TABEL}`;
-    } else {
-      bron = leesBlad(workbook);
-      bronNaam = `blad ${BRON_BLAD}`;
-    }
+  let bron: Cel[][] | undefined;
+  let bronNaam = `tabel ${BRON_TABEL}`;
+  const t = workbook.getTable(BRON_TABEL);
+  if (t) {
+    bron = t.getRange().getValues() as Cel[][];
+  } else {
+    bron = leesBlad(workbook);
+    bronNaam = `blad ${BRON_BLAD}`;
   }
   if (!bron) {
-    return meld(`Geen planning gevonden: tabel '${BRON_TABEL}' en blad '${BRON_BLAD}' staan niet in deze werkmap. ` +
-      `Zet blad Uit in deze werkmap, of geef de planning mee via Power Automate.`);
+    return meld(`Geen planning gevonden: tabel '${BRON_TABEL}' en blad '${BRON_BLAD}' staan niet in deze werkmap. Er is niets aangepast.`);
   }
 
   const bKop = bron[0];
@@ -231,7 +220,6 @@ function leesBlad(workbook: ExcelScript.Workbook): Cel[][] | undefined {
   return undefined;
 }
 
-function meld(tekstMelding: string): string {
+function meld(tekstMelding: string): void {
   console.log(tekstMelding);
-  return tekstMelding;
 }
