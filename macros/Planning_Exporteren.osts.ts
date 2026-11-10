@@ -37,5 +37,5 @@ function main(workbook: ExcelScript.Workbook): string[][] {
 }
 
 function norm(v: Cel): string {
-  return String(v ?? "").replace(/[\s ]/g, "").toUpperCase();
+  return String(v ?? "").replace(/[\s\u00a0]/g, "").toUpperCase();
 }

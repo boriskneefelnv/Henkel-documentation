@@ -210,7 +210,7 @@ function beter(bron: Cel[][], nieuw: number, oud: number, cLoaded: number, cLaad
 
 /** Kolomindex (0-gebaseerd) op naam; hoofdletter- en spatieongevoelig. -1 = niet gevonden. */
 function kolom(kop: Cel[], namen: string[]): number {
-  const norm = (v: Cel) => String(v ?? "").replace(/[\s ]/g, "").toUpperCase();
+  const norm = (v: Cel) => String(v ?? "").replace(/[\s\u00a0]/g, "").toUpperCase();
   const gezocht = namen.map(n => norm(n));
   for (let c = 0; c < kop.length; c++) if (gezocht.indexOf(norm(kop[c])) >= 0) return c;
   return -1;
