@@ -1,6 +1,6 @@
-# Macro: Documentregistratie_Aanvullen
+# Documentregistratie bijwerken
 
-Werkt **alleen op tabblad `DCMAASVLAKTE`**. Hij werkt de groene kolommen bij vanuit blad **Uit** van `New_planning_Henkel.xlsm`, op basis van het masternummer (kolom **Master**).
+Werkt **alleen op tabblad `DCMAASVLAKTE`**. Het script werkt de groene kolommen bij vanuit blad **Uit** van de Henkel-planning, op basis van het masternummer (kolom **Master**).
 
 | Groene kolom op DCMAASVLAKTE | Bron (blad Uit) |
 |---|---|
@@ -10,22 +10,35 @@ Werkt **alleen op tabblad `DCMAASVLAKTE`**. Hij werkt de groene kolommen bij van
 | Dest | DEST |
 | Loading date | LAAD DATUM (of LD DATE) |
 
-Uit de tool komen, met de knop "Kopieer voor documentregistratie": Master, 5 witte kolommen, Document code, Description en Request date (kolom A, G, H en I).
+Uit de tool komen, met de knop "Kopieer voor documentregistratie": Master, 5 witte kolommen, Document code, Description en Request date.
 
-## Regels
-- **Alleen tabblad DCMAASVLAKTE wordt aangepast**, en daarop alleen de 5 groene kolommen. Andere kolommen (Master, Document code … Status), andere tabbladen en de planning zelf blijven onaangeroerd: geen waarden en geen opmaak.
-- **De groene kolommen volgen altijd blad Uit.** Is iets in de planning veranderd (laaddatum, shipment, …), dan wordt de groene cel bij de volgende run aangepast. Is het veld in de planning leeg geworden, dan wordt de groene cel ook leeg. De opmaak blijft staan.
-- Staat een master niet in de planning, dan blijft die regel helemaal ongewijzigd. Hij wordt alleen in de melding genoemd.
-- Komt een master meerdere keren voor in de planning, dan wint de nog niet geladen regel, daarna de laatste laaddatum. De melding noemt die masters.
-- Placeholderdatums (bijvoorbeeld 01-01-1900) gelden als "geen laaddatum".
+Er zijn twee versies met hetzelfde gedrag:
+
+| Bestand | Voor |
+|---|---|
+| `Documentregistratie_Aanvullen.osts.ts` | **Excel-script** (Office Script, Excel voor het web / Microsoft 365, tabblad *Automatiseren*) |
+| `Planning_Exporteren.osts.ts` | Hulpscript, alleen nodig als DCMAASVLAKTE en blad Uit in **verschillende bestanden** staan (via Power Automate) |
+| `Documentregistratie_Aanvullen.bas` | De VBA-macro (Excel desktop), voor wie die liever gebruikt |
+
+## Regels (beide versies)
+- **Alleen tabblad DCMAASVLAKTE wordt aangepast**, en daarop alleen de 5 groene kolommen. Andere kolommen, andere tabbladen en de planning zelf blijven onaangeroerd: geen waarden en geen opmaak.
+- **De groene kolommen volgen altijd blad Uit.** Wat in de planning verandert, wordt bij de volgende run bijgewerkt. Is een veld in de planning leeg geworden, dan wordt de groene cel ook leeg. De opmaak blijft staan.
+- Staat een master niet in de planning, dan blijft die regel ongewijzigd. Hij wordt alleen gemeld.
+- Dubbele masters in de planning: de nog niet geladen regel wint, daarna de laatste laaddatum.
+- Placeholderdatums (bijvoorbeeld 01-01-1900) gelden als leeg.
 - Kolommen worden op naam gevonden, dus de volgorde mag verschuiven.
 
-## Installeren (eenmalig)
-1. Open de werkmap met tabblad DCMAASVLAKTE en druk op **Alt+F11**.
-2. Kies **Bestand → Bestand importeren…** en selecteer `Documentregistratie_Aanvullen.bas`. Staat er al een oude versie in, verwijder die module dan eerst.
-3. Sla de werkmap op als **.xlsm**.
+## Excel-script installeren en gebruiken
+1. Open de werkmap in Excel (web of desktop met Microsoft 365) → tabblad **Automatiseren** → **Nieuw script**.
+2. Vervang de voorbeeldcode door de inhoud van `Documentregistratie_Aanvullen.osts.ts` en sla op als *Documentregistratie aanvullen*.
+3. Klik op **Uitvoeren**. De melding (aantal bijgewerkte regels, niet-gevonden en dubbele masters) staat in het uitvoervenster.
+   Tip: via **…** → *Knop toevoegen* zet je het script als knop op een werkblad.
 
-## Gebruik
-- Druk op **Alt+F8** → `Documentregistratie_Aanvullen` → Uitvoeren. Dat kan vanaf elk tabblad: de macro zoekt DCMAASVLAKTE zelf.
-- Staat de planning niet open, dan vraagt hij om het bestand en opent hij het alleen-lezen.
-- Draai de macro opnieuw wanneer de planning is bijgewerkt. Zo blijven de groene kolommen actueel.
+**Belangrijk:** een Excel-script kan alleen de werkmap lezen waarin het draait. Blad **Uit** (tabel `HenkelPlanning`) moet dus in **dezelfde werkmap** staan als DCMAASVLAKTE.
+
+### Staat de planning in een ander bestand? Gebruik Power Automate
+1. Maak een flow met **Excel Online (Business) → Script uitvoeren** op het planningbestand, met het script `Planning_Exporteren` (opslaan zoals hierboven).
+2. Voeg een tweede **Script uitvoeren** toe op het registratiebestand met `Documentregistratie aanvullen`. Vul bij de parameter **planning** het *result* van stap 1 in.
+3. De flow kun je handmatig starten of laten inplannen (bijvoorbeeld elk uur).
+
+Power Automate werkt met bestanden in OneDrive of SharePoint. Draait het script daar niet op een .xlsm-bestand, sla de werkmap dan op als .xlsx (de VBA-macro gaat daarbij verloren).
