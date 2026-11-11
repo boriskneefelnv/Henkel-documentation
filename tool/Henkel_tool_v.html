@@ -896,13 +896,6 @@ tslib/tslib.es6.js:
         <div class="mail-note" id="mailNote" hidden></div>
         <div class="mail-docs-label">Documenten <a href="#" id="mailDocsToggle" hidden style="text-transform:none;font-weight:400;letter-spacing:0;color:var(--brass);margin-left:6px">+ overige documenten tonen</a></div>
         <div class="docs-wrap" id="mailDocs"></div>
-        <div class="mail-docs-label" style="margin-top:14px">Excel-regel documenten <span style="text-transform:none;font-weight:400">(CVO &middot; EUR1 &middot; ATR &middot; COC &middot; HS &mdash; plakt in 5 kolommen naast elkaar)</span></div>
-        <div id="xlRowWrap" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-          <table class="xl-tbl"><thead><tr><th>CVO</th><th>EUR1</th><th>ATR</th><th>COC</th><th>HS</th></tr></thead>
-          <tbody><tr><td id="xlC0"></td><td id="xlC1"></td><td id="xlC2"></td><td id="xlC3"></td><td id="xlC4"></td></tr></tbody></table>
-          <button class="btn-copy" id="xlCopy" type="button" title="Zet CVO/EUR1/ATR/COC/HS tab-gescheiden op het klembord: in Excel plakken vult 5 kolommen in &eacute;&eacute;n keer">Kopieer voor Excel</button>
-          <span class="copy-fb" id="xlFb">Gekopieerd &#10003;</span>
-        </div>
         <div class="mail-docs-label" style="margin-top:14px">Excel-regels documentregistratie <span style="text-transform:none;font-weight:400">(Master &middot; 5 witte kolommen (BP File, Reference, IC/EC, Dest, Loading date &mdash; die vult de macro) &middot; Document code &middot; Description &middot; Aantal &middot; Request date (vandaag); plus een aparte HS-regel &mdash; &eacute;&eacute;n rij per aangevraagd document, alles in &eacute;&eacute;n keer plakken)</span></div>
         <div id="regWrap" style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
           <table class="xl-tbl reg-tbl"><thead><tr><th>Master</th><th></th><th></th><th></th><th></th><th></th><th>Document code</th><th>Description</th><th>Aantal</th><th>Request date</th></tr></thead>
@@ -4513,10 +4506,9 @@ function xlExportRow(selectedTokens, uniqueHs, hasRows) {
 }
 /* KC-XL-END */
 
+/* De oude 5-kolommen-regel (CVO | EUR1 | ATR | COC | HS) is vervangen door de
+   documentregistratie-regels hieronder; xlExportRow levert nog wel het HS-aantal. */
 function renderXlRow() {
-  const d = (typeof derived !== 'undefined' && derived) ? derived : null;
-  const vals = xlExportRow(mailDocsSelected(), d && d.pivot ? d.pivot.uniqueHs : 0, !!(d && d.rows && d.rows.length));
-  for (let i = 0; i < 5; i++) el('xlC' + i).textContent = vals[i];
   renderRegRows();
 }
 
@@ -4589,15 +4581,6 @@ el('regCopy').addEventListener('click', async () => {
   const ok = await copyText(r.rows.map(row => row.join('\t')).join('\r\n'));
   const fb = el('regFb');
   fb.textContent = ok ? 'Gekopieerd \u2713 (' + r.rows.length + ' rij' + (r.rows.length === 1 ? '' : 'en') + ')' : 'Kopi\u00ebren mislukt';
-  fb.classList.add('show');
-  setTimeout(() => fb.classList.remove('show'), 2200);
-});
-el('xlCopy').addEventListener('click', async () => {
-  const d = (typeof derived !== 'undefined' && derived) ? derived : null;
-  const vals = xlExportRow(mailDocsSelected(), d && d.pivot ? d.pivot.uniqueHs : 0, !!(d && d.rows && d.rows.length));
-  const ok = await copyText(vals.join('\t'));
-  const fb = el('xlFb');
-  fb.textContent = ok ? 'Gekopieerd \u2713' : 'Kopi\u00ebren mislukt';
   fb.classList.add('show');
   setTimeout(() => fb.classList.remove('show'), 2200);
 });

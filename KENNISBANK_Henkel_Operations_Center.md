@@ -137,11 +137,11 @@ Daarna wordt per set+IDH **naar boven afgerond** op hele colli: floor per regel,
   - "Svp voor morgen exa/coo/…"
   - Optioneel "(Nkopies)", "Aub draft opmaken", "Ref", "Euro 1100", "Kantoor van uitgang", "Aub onderstaande vermelden op drafts", "Aub in vak 7 eur 1 revised rules" en "Voor COO>".
   - Bij Casablanca komt er een EUR-1-retouradres bij.
-- **Excel-regel CVO | EUR1 | ATR | COC | HS:** "A" als het document wordt aangevraagd, anders 0. COC = KvK-legalisatie. HS = aantal unieke HS-codes min 1.
+- **Excel-regel CVO | EUR1 | ATR | COC | HS:** verwijderd op 11-11-2026; vervangen door de Excel-regels documentregistratie hieronder. De HS-berekening (unieke HS-codes min 1) leeft voort in de HS-regel (10001).
 - **Excel-regels documentregistratie** (toegevoegd 10-11-2026): per aangevinkt document één rij, tab-gescheiden, met de knop "Kopieer voor documentregistratie".
   - Kolommen: master (= Ref/NV-nummer) | 5 lege kolommen | documentcode | documentsoort | aantal | datum van vandaag (dd-mm-jjjj). Dat past op het registratieblad A Master · B BP File · C Reference · D IC/EC · E Dest · F Loading date · G Document code · H Description · I Aantal · J Request date.
   - Aantal: EXA altijd 1; CVO, EUR.1, ATR en legalisatie leeg.
-  - Aparte HS-regel: code 10001, omschrijving HS, aantal = aantal extra HS-codes (unieke HS-codes min 1, zelfde als de HS-kolom van de A/0-regel). Verschijnt zodra facturen en packing lists zijn ingelezen. De macro `Documentregistratie_Aanvullen` (`macros/`) werkt alleen op tabblad DCMAASVLAKTE en houdt de groene kolommen B–F steeds gelijk aan blad Uit van de planning; andere kolommen raakt hij niet aan.
+  - Aparte HS-regel: code 10001, omschrijving HS, aantal = aantal extra HS-codes (unieke HS-codes min 1). Verschijnt zodra facturen en packing lists zijn ingelezen. De macro `Documentregistratie_Aanvullen` (`macros/`) werkt alleen op tabblad DCMAASVLAKTE en houdt de groene kolommen B–F steeds gelijk aan blad Uit van de planning; andere kolommen raakt hij niet aan.
   - Codes: 71001 EXA, 72001 ATR, 72002 EUR.1, 72200 CVO, 72301 LEGALISEREN (kvk, legalised invoice en gelegaliseerde factuur samen worden één rij).
   - Voor copy, coc en embassy is geen code bekend. Daarvoor komt geen rij; de tool meldt dat.
   - De knop werkt pas als Ref is ingevuld.
