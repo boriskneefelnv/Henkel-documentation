@@ -1060,7 +1060,7 @@ tslib/tslib.es6.js:
       <p class="kc-intro">Sleep hier de <b>draai-Excel</b> (of een mail met de Excel als bijlage). De tool leest het
       Inputblad, neemt alleen de regels met een UN-nummer, groepeert ze per UN, voegt regels van hetzelfde artikel samen, en maakt een <b>volledige DGD op</b>
       in de Henkel-opmaak. Bruto komt uit de <b>packing list</b> (gemeten) en anders uit <i>Total weight KA</i>; netto is altijd <b>90% van bruto</b>, dus nooit gelijk of hoger. Verpakkingen zijn algemeen gehouden: drums&nbsp;1A1, IBC&rsquo;s&nbsp;31HA1, aerosols of metal cans in fiber board boxes&nbsp;(4G). Vak&nbsp;19 is het containertotaal. Je mag <b>twee packing lists</b> toevoegen; er is altijd &eacute;&eacute;n Excel.
-      Je kiest nog de laadhaven; consignee en referenties worden automatisch ingevuld.</p>
+      Je kiest nog de laadhaven; consignee en referenties worden automatisch ingevuld. <b>UN-nummer, klasse, verpakkingsgroep en vlampunt komen uit de DG-masterdata (MSDS-export)</b>; die is leidend. Een nieuwere <i>msds_export.xlsx</i> kun je hier ook in slepen.</p>
       <div class="drop" id="maakDrop" tabindex="0" role="button" aria-label="Excel kiezen">
         <div class="big">Sleep hier je Excel</div>
         <div class="sub">Eerst de Excel (.xlsx) of de mail (.msg/.eml), daarna de packing list(s) (.pdf) &mdash; of klik om te kiezen.</div>
@@ -6020,7 +6020,7 @@ function dgdHazClass(unText) {
     if (s === t) break;
     t = s;
   }
-  const m = t.match(/(?:^|[,\s])([1-9](?:\.[1-6])?)\s*(?=,)/);
+  const m = t.match(/(?:^|[,\s])([1-9](?:\.[1-6])?)\s*(?=,|$)/);
   return m ? m[1] : '';
 }
 
@@ -6169,7 +6169,7 @@ function dgdValidate(d) {
        van het artikel (sectie 9) en kan hierboven in het UN-tekstveld worden
        toegevoegd, bv. \u201c, Flp -97C\u201d v\u00f3\u00f3r LTD QTY. De tool verzint nooit zelf een
        waarde \u2014 dat is een veiligheidsgegeven. */
-    const heeftFlp = /Fl(?:ash)?\s*p(?:oint)?\.?\s*[-\u2212]?\s*\d/i.test(String(b.unText || ''));
+    const heeftFlp = /Fl(?:ash)?\s*p(?:oint)?\.?\s*[<>]?\s*[-\u2212]?\s*\d/i.test(String(b.unText || ''));
     if (!heeftFlp && b.cls === '3') {
       F.push({ level: 'err', code: 'flp_klasse3', un: b.un,
         msg: 'UN' + b.un + ' (klasse 3): het vlampunt ontbreekt in de omschrijving. IMDG vereist het vlampunt bij klasse 3.',
@@ -6293,6 +6293,43 @@ function dgdValidate(d) {
       F.push({ level: 'err', code: 'segregatie', un: '', idh: '',
         msg: 'IMDG-segregatie: klasse ' + ca + ' (UN' + ua + ') en klasse ' + cb + ' (UN' + ub + ') vereisen ' + (segLabel[code] || 'scheiding') + ' en mogen niet samen in één container/transporteenheid worden vervoerd.',
         fix: 'Controleer de zending: deze klassen moeten in aparte containers. Verwijder één van beide van deze DGD of pas de belading aan.' });
+    }
+  }
+  /* DG-masterdata (MSDS-export) is leidend: UN-nummer, klasse, verpakkingsgroep en
+     vlampunt per artikel toetsen. */
+  if (typeof dgdMd === 'function') {
+    const md = dgdMd();
+    const gemeld = {};
+    for (const b of d.blocks) for (const it of b.items) {
+      const e = md.map[String(it.idh || '').replace(/\D/g, '')];
+      if (!e) continue;
+      const comps = e.comps.filter(c => !DGD_ALLEEN_LUCHT[c.un]);
+      if (!comps.length) continue;
+      const c = comps.find(x => x.un === b.un);
+      if (!c) {
+        F.push({ level: 'err', code: 'md_un', un: b.un, idh: it.idh,
+          msg: 'Volgens de DG-masterdata (MSDS) is IDH ' + it.idh + ' ' + comps.map(x => 'UN' + x.un).join(' + ') + ', niet UN' + b.un + '.',
+          fix: 'Zet het artikel onder het UN-nummer uit de masterdata, of maak de DGD opnieuw met \u201cDGD maken v2\u201d.' });
+        continue;
+      }
+      const sleutel = b.un + '|' + b.unText;
+      if (gemeld[sleutel + '|' + it.idh]) continue;
+      gemeld[sleutel + '|' + it.idh] = true;
+      const fout = [];
+      if (c.cl && b.cls && c.cl !== b.cls) fout.push('klasse ' + b.cls + ' \u2192 ' + c.cl);
+      const pgNu = dgdPackGroup(b.unText);
+      if (c.pg && pgNu !== c.pg) fout.push('verpakkingsgroep ' + (pgNu || 'ontbreekt') + ' \u2192 ' + c.pg);
+      if (dgdMdNodigFlp(c) && c.flp) {
+        const fm = /Fl(?:ash)?\s*p(?:oint)?\.?\s*([<>]?)\s*([-\u2212]?\s*\d+(?:[.,]\d+)?)/i.exec(String(b.unText || ''));
+        const nuVal = fm ? parseFloat(fm[2].replace(/\s|\u2212/g, m0 => (m0 === '\u2212' ? '-' : '')).replace(',', '.')) : null;
+        if (!fm) fout.push('vlampunt ontbreekt \u2192 ' + c.flp.txt);
+        else if (Math.abs(nuVal - c.flp.val) > 0.05 || (fm[1] || '') !== c.flp.bound) fout.push('vlampunt Flp ' + (fm[1] || '') + nuVal + 'C \u2192 ' + c.flp.txt);
+      }
+      if (fout.length) {
+        F.push({ level: 'err', code: 'md_afwijking', un: b.un, idh: it.idh,
+          msg: 'Wijkt af van de DG-masterdata (MSDS): ' + fout.join('; ') + '.',
+          fix: 'Volgens de masterdata hoort de UN-omschrijving te zijn: ' + dgdMdTekst(c, b.unText).tekst });
+      }
     }
   }
   return F;
@@ -7070,7 +7107,7 @@ var DGD_IMDG = {
   '1139': { naam: 'COATING SOLUTION', kl: '3', pgs: ['I', 'II', 'III'], ltdMax: { II: 5, III: 5 } },
   '1263': { naam: 'PAINT', kl: '3', pgs: ['I', 'II', 'III'], ltdMax: { II: 5, III: 5 } },
   '1866': { naam: 'RESIN SOLUTION', kl: '3', pgs: ['I', 'II', 'III'], ltdMax: { II: 5, III: 5 } },
-  '1950': { naam: 'AEROSOLS', kl: '2.1', pgs: [], ltdMax: { '-': 1 } },
+  '1950': { naam: 'AEROSOLS', kl: '2.1|2.2|2.3', pgs: [], ltdMax: { '-': 1 } },   /* UN1950 bestaat als 2.1, 2.2 en 2.3 */
   '2491': { naam: 'ETHANOLAMINE', kl: '8', pgs: ['III'], ltdMax: { III: 5 } },
   '2735': { naam: 'AMINES, LIQUID, CORROSIVE, N.O.S.', kl: '8', pgs: ['I', 'II', 'III'], ltdMax: { II: 1, III: 5 } },
   '2865': { naam: 'HYDROXYLAMINE SULPHATE', kl: '8', pgs: ['III'], ltdMax: { III: 5 } },
@@ -7087,7 +7124,7 @@ var DGD_IMDG = {
 function dgdPackGroup(unText) {
   let t = String(unText || '').replace(/^UN\s*\d{4}/i, '');
   for (let i = 0; i < 8; i++) { const s = t.replace(/\([^()]*\)/g, ' '); if (s === t) break; t = s; }
-  const m = t.match(/,\s*(I{1,3})\s*[,)]/);
+  const m = t.match(/,\s*(I{1,3})\s*(?:[,)]|$)/);
   return m ? m[1] : '';
 }
 
@@ -7184,9 +7221,9 @@ function dgdQualityGate(dg) {
        verpakkingsgroep toegestaan, en mag dit goed als LTD QTY? */
     const ref = DGD_IMDG[String(b.un)];
     if (ref) {
-      if (b.cls && ref.kl && b.cls !== ref.kl) {
+      if (b.cls && ref.kl && ref.kl.split('|').indexOf(b.cls) < 0) {
         add('klasse_fout', 'UN' + b.un + ': de omschrijving zegt klasse ' + b.cls +
-          ', maar volgens de IMDG-lijst is UN' + b.un + ' klasse ' + ref.kl + '.');
+          ', maar volgens de IMDG-lijst is UN' + b.un + ' klasse ' + ref.kl.split('|').join(' of ') + '.');
       }
       const pg = dgdPackGroup(b.unText);
       if (pg && ref.pgs.length && ref.pgs.indexOf(pg) < 0) {
@@ -8514,6 +8551,9 @@ function maakRender() {
   html += '<label>Laadhaven (vak 11)<select id="maakPort">' + DGD_PORTS.map(p => '<option' + (dg.loading === p ? ' selected' : '') + '>' + p + '</option>').join('') + '</select></label></div>';
   if (!dg.consignee.length) html += '<div class="dgd-err"><b>Let op:</b> geen consignee gevonden voor deze bestemming. Controleer de bestemming.</div>';
   else html += '<div class="dgd-edit-row"><span class="lbl">Consignee: ' + esc(dg.consignee[0]) + '\u2026</span></div>';
+  { const md = dgdMd();
+    html += '<div class="dgd-edit-row"><span class="lbl">DG-masterdata (leidend): ' + esc(md.bron.naam) + (md.bron.datum ? ' \u00b7 ' + esc(md.bron.datum) : '') +
+      ' \u00b7 ' + md.aantal + ' artikelen' + (md.bron.ingebouwd ? ' (ingebouwd)' : ' (zelf ingeladen)') + '</span></div>'; }
   html += '</div>';
   /* overzicht van de UN-blokken */
   html += '<div class="dgd-edit"><div class="dgd-edit-h">Gevaarlijke goederen (' + dg.blocks.length + ' UN-blok' + (dg.blocks.length === 1 ? '' : 'ken') + ')</div>';
@@ -8530,7 +8570,7 @@ function maakRender() {
     /* vlampunt-invoer: alleen tonen zolang het ontbreekt bij klasse 3 / 2.1 */
     (function () {
       const c = dgdHazClass(b.unText);
-      const heeft = /Fl(?:ash)?\s*p(?:oint)?\.?\s*[-\u2212]?\s*\d/i.test(String(b.unText || ''));
+      const heeft = /Fl(?:ash)?\s*p(?:oint)?\.?\s*[<>]?\s*[-\u2212]?\s*\d/i.test(String(b.unText || ''));
       if (!heeft && (c === '3' || /^2\.1/.test(String(c || '')))) {
         html += '<div class="dgd-edit-row" style="padding-left:12px"><label>Vlampunt (\u00b0C)' +
                 '<input type="text" id="maakFlp_' + bi + '" placeholder="bijv. -4 of 23" class="bad"></label>' +
@@ -10060,6 +10100,242 @@ function dgd2MergePl(list) {
 
 /* ── 4. Model bouwen ─────────────────────────────────────────────────────────
    rows (Excel) + opts -> DGD-model, met samenvoeging per IDH en netto=90%. */
+/* ══════════════════════════════════════════════════════════════════════════════
+   DG-MASTERDATA (uit de MSDS-export) — LEIDEND voor de DGD
+   ══════════════════════════════════════════════════════════════════════════════
+   Per IDH (= bestandsnaam van het MSDS) staan hier UN-nummer, klasse, subklasse,
+   verpakkingsgroep, vlampunt en technische naam. DGD maken v2 zet deze gegevens
+   op de DGD; DGD controleren toetst een DGD eraan.
+   - Vervoersnaam: de MSDS-export is grotendeels Nederlands; op de DGD komt de
+     officiële Engelse IMDG-naam per UN-nummer (DGD_PSN_EN).
+   - Technische naam (alleen bij N.O.S.): die uit het Excel-veld "UN info" als
+     dat hetzelfde UN-nummer is, anders de vertaalde naam uit de masterdata.
+   - LTD QTY, MARINE POLLUTANT en EmS: in de export niet ingevuld ("-" / "N"),
+     daarom blijven die uit het Excel-veld "UN info" komen.
+   - Eén artikel met meerdere UN-nummers (sets met Part A/Part B): elk UN-nummer
+     een eigen regel, gewicht gelijk verdeeld, stuks/colli volledig bij beide.
+   - UN3334/UN3335 gelden alleen voor luchtvracht en komen niet op een zee-DGD.
+   Een nieuwere export (msds_export.xlsx, blad "MSDS Data") in "DGD maken v2"
+   slepen vervangt deze ingebouwde versie (wordt in deze browser onthouden). */
+var DGD_MD_BRON_STD = { naam: 'msds_export.xlsx', datum: '11-11-2026' };
+var DGD_MD_RAW = [["28375.PDF","BONDERITE M-NT 2040","UN3264","BIJTENDE ZURE ANORGANISCHE VLOEISTOF, N.E.G.","8","-","II","-","Zwavelzuur,hexafluortitaanzuur"],["28394.PDF","BONDERITE C-IC 120 WX","UN1790","FLUORWATERSTOFZUUR (Oplossing)","8","6.1","II",">100 \u00b0C","Oplossing"],["28890.PDF","BONDERITE C-IC 124 known as Ridoline 124","UN2796","ZWAVELZUUR (Oplossing)","8","-","II","-","-"],["29341.PDF","BONDERITE C-MC 010 ALKALINE MEMBRANE CLEANER","UN1823","SODIUM HYDROXIDE, SOLID","8","-","II","-","Mengsel"],["29341.PDF","BONDERITE C-MC 010 ALKALINE MEMBRANE CLEANER","UN1823","SODIUM HYDROXIDE, SOLID","8","-","II","-","Mengsel"],["29342.PDF","BONDERITE C-MC 030","UN3262","BIJTENDE BASISCHE ANORGANISCHE VASTE STOF, N.E.G.","8","-","III","-","natriumhydroxide"],["44354.PDF","Tangit All Pressure PVC-Lijm","UN1133","LIJMEN","3","-","II","-4 \u00b0C","-"],["70184.PDF","LOCTITE LIOFOL LA 3610 200KG","UN1133","LIJMEN","3","-","II","-4 \u00b0C","-"],["88365.PDF","LOCTITE SF 7070 known as Loctite 7070 Cleaner","UN1268","AARDOLIEDESTILLATEN, N.E.G.","3","-","III","39 \u00b0C","Stoddard Solvent"],["88365.PDF","LOCTITE SF 7070 known as Loctite 7070 Cleaner","UN1268","AARDOLIEDESTILLATEN, N.E.G.","3","-","III","39 \u00b0C","Stoddard Solvent"],["142270.PDF","LOCTITE MR 5923","UN1866","HARS, OPLOSSING","3","-","II","15 \u00b0C","-"],["142537.PDF","LOCTITE SF 7803","UN1950","A\u00cbROSOLEN","2.1","-","-","-97 \u00b0C","Hydrocarbons, C6-C7, n-alkanes, isoalkanes, cyclics, <5% n-hexane"],["156769.PDF","TECHNOMELT CLEANER MELT-O-CLEAN 4,5L","UN2052","DIPENTENE","3","-","III","40-50 \u00b0C","-"],["177379.PDF","Pattex trans. 12x50 g UE","UN1133","LIJMEN","3","-","II","-22 \u00b0C","-"],["195777  (1).PDF","LOCTITE SF 7386","UN1993","BRANDBARE VLOEISTOF, N.E.G.","3","-","II","-5 \u00b0C","heptanen,isopropanol"],["195777  (1).PDF","LOCTITE SF 7386","UN1993","BRANDBARE VLOEISTOF, N.E.G.","3","-","II","-5 \u00b0C","heptanen,isopropanol"],["195777 (2).PDF","LOCTITE AA 330","-","-","-","-","-","83 \u00b0C","-"],["195777 (3).PDF","LOCTITE SF 7386","UN1993","BRANDBARE VLOEISTOF, N.E.G.","3","-","II","-5 \u00b0C","heptanen,isopropanol"],["195826 (1).PDF","LOCTITE EA 3479 Part A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">110 \u00b0C","bisfenol-A-epichloorhydrinehars"],["195826 (2).PDF","LOCTITE EA 3479 Part A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">110 \u00b0C","bisfenol-A-epichloorhydrinehars"],["195826 (3).PDF","LOCTITE EA 3479 Part B","UN1759","BIJTENDE VASTE STOF, N.E.G.","8","-","III",">100 \u00b0C","isoforon diamine"],["195915.PDF","LOCTITE SF 7085 SUPERFOAM","UN1950","AEROSOLS","2.1","-","-","-97 \u00b0C","-"],["229173 (1).PDF","LOCTITE EA 3475 Part A","UN3077","MILIEUGEVAARLIJKE VASTE STOF, N.E.G.","9","-","III",">110 \u00b0C","Epoxyhars"],["229173 (1).PDF","LOCTITE EA 3475 Part A","UN3077","MILIEUGEVAARLIJKE VASTE STOF, N.E.G.","9","-","III",">110 \u00b0C","Epoxyhars"],["229173 (2).PDF","LOCTITE EA 3475 Part A","UN3077","MILIEUGEVAARLIJKE VASTE STOF, N.E.G.","9","-","III","> 110 \u00b0C","Epoxyhars"],["229173 (3).PDF","LOCTITE EA 3475 Part B","UN1759","BIJTENDE VASTE STOF, N.E.G.","8","-","II",">100 \u00b0C","isoforon diamine,2-methylpentaan-1,5-diamine"],["229174 (1).PDF","LOCTITE EA 3473 PART A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">110 \u00b0C","bisfenol-A-epichloorhydrinehars"],["229174 (2).PDF","LOCTITE EA 3473 PART A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">110 \u00b0C","bisfenol-A-epichloorhydrinehars"],["229174 (3).PDF","LOCTITE EA 3473 PART B","-","-","-","-","-",">110 \u00b0C","-"],["229175 (1).PDF","LOCTITE EA 3472 Part A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">110 \u00b0C","Epoxyhars"],["229175 (1).PDF","LOCTITE EA 3472 Part A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">110 \u00b0C","Epoxyhars"],["229175 (2).PDF","LOCTITE EA 3472 Part A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">110 \u00b0C","Epoxyhars"],["229175 (3).PDF","LOCTITE EA 3472 Part B","UN1759","BIJTENDE VASTE STOF, N.E.G.","8","-","II",">100 \u00b0C","isoforon diamine,2-methylpentaan-1,5-diamine"],["229176 (1).PDF","LOCTITE EA 3471 Part A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">110 \u00b0C","Epoxyhars"],["229176 (1).PDF","LOCTITE EA 3471 Part A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">110 \u00b0C","Epoxyhars"],["229176 (2).PDF","LOCTITE EA 3471 Part A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">110 \u00b0C","Epoxyhars"],["229176 (3).PDF","LOCTITE EA 3471 Part B","UN3259","AMINEN, VAST, BIJTEND, N.E.G.","8","-","II",">101 \u00b0C","isoforon diamine,2-methylpentaan-1,5-diamine"],["229184.PDF","LOCTITE EA 3471 Part A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">110 \u00b0C","Epoxyhars"],["229184.PDF","LOCTITE EA 3471 Part A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">110 \u00b0C","Epoxyhars"],["232315.PDF","Teroson Rem- en Koppelingsreiniger","UN1950","A\u00cbROSOLEN","2.1","-","-","-9 \u00b0C","Hydrocarbons, C6-C7, n-alkanes, isoalkanes, cyclics, <5% n-hexane"],["237772.PDF","TEROSON PU 8517 H GLASPR","UN1139","BESCHERMLAK, OPLOSSING","3","-","II","-5.0 \u00b0C","-"],["245299.PDF","TEROSON RB 7808 known as TEROSTAT 7808 BI250","UN3077","MILIEUGEVAARLIJKE VASTE STOF, N.E.G.","9","-","III","-","zinkoxide,dibenzothiazyldisulfide"],["250000.PDF","LOCTITE SF 7100","UN1950","A\u00cbROSOLEN","2.2","-","-","104 \u00b0C","-"],["303130.PDF","LOCTITE LB 8001","UN1950","AEROSOLS","2.1","-","-","-97 \u00b0C","-"],["303134.PDF","LOCTITE LB 8101","UN1950","A\u00cbROSOLEN","2.1","-","-","-97 \u00b0C","-"],["310511.PDF","TEROSON PU 8517H BO500ML","UN1139","BESCHERMLAK, OPLOSSING","3","-","II","-5.0 \u00b0C","-"],["329629 Kopi\u00ebren.PDF","TEROSON PU 8511 GLASSPRIMER","UN1139","BESCHERMLAK, OPLOSSING","3","-","II","2.0 \u00b0C","-"],["329629.PDF","TEROSON PU 8511 GLASSPRIMER","UN1139","BESCHERMLAK, OPLOSSING","3","-","II","2.0 \u00b0C","-"],["365240.PDF","BONDERITE C-AK 7163 CF/5","UN1814","KALIUMHYDROXIDE, OPLOSSING","8","-","II","-","-"],["380947.PDF","LOCTITE FREKOTE 55NC","UN1866","HARS, OPLOSSING","3","-","II","7 \u00b0C","-"],["380979.PDF","LOCTITE FREKOTE 770NC","UN1866","HARS, OPLOSSING","3","-","II","7 \u00b0C","-"],["381027.PDF","LOCTITE FREKOTE B15 MOLD RELEASE","UN1866","HARS, OPLOSSING","3","-","III","25 \u00b0C","-"],["406488.PDF","Tangit All Pressure PVC-Lijm","UN1133","LIJMEN","3","-","II","-4 \u00b0C","-"],["406517.PDF","Tangit All Pressure PVC-Lijm","UN1133","LIJMEN","3","-","II","-4 \u00b0C","-"],["414546.PDF","Tangit All Pressure PVC-Lijm","UN1133","LIJMEN","3","-","II","-4 \u00b0C","-"],["444650.PDF","TEROSON SB 2444","UN1133","LIJMEN","3","-","II","< 0 \u00b0C","Cyclohexane"],["467663.PDF","LOCTITE LIOFOL LA 6255 known as LIOFOL HAERTER UR 6255","UN1133","ADHESIVES","3","-","II","-4 \u00b0C","-"],["467663.PDF","LOCTITE LIOFOL LA 6255 known as LIOFOL HAERTER UR 6255","UN1133","ADHESIVES","3","-","II","-4 \u00b0C","-"],["492387.PDF","TEROSON RB 7847 E known as TEROSTAT 7847E BI260","UN3077","MILIEUGEVAARLIJKE VASTE STOF, N.E.G.","9","-","III","-","zinkoxide,dibenzothiazyldisulfide"],["492387.PDF","TEROSON RB 7847 E known as TEROSTAT 7847E BI260","UN3077","MILIEUGEVAARLIJKE VASTE STOF, N.E.G.","9","-","III","-","zinkoxide,dibenzothiazyldisulfide"],["546890.PDF","BONDERITE M-AD 100 known as Additive P","UN1805","FOSFORZUUR, OPLOSSING","8","-","III","-","-"],["615447.PDF","TEROSON RB 1167 known as TEROSTAT 1167 FUT 250 KG","UN3077","MILIEUGEVAARLIJKE VASTE STOF, N.E.G.","9","-","III","-","zinkoxide"],["615447.PDF","TEROSON RB 1167 known as TEROSTAT 1167 FUT 250 KG","UN3077","MILIEUGEVAARLIJKE VASTE STOF, N.E.G.","9","-","III","-","zinkoxide"],["616929.PDF","BONDERITE C-AK G 414","UN1814","KALIUMHYDROXIDE, OPLOSSING","8","-","II",">100 \u00b0C","-"],["642844.PDF","TEROSON SB 450","UN1219","ISOPROPANOL","3","-","II","12 \u00b0C","-"],["680342.PDF","LOCTITE LB 8040 known as SOLVO RUST ICE 400ML EPIG","UN1950","A\u00cbROSOLEN","2.1","-","-","-60 \u00b0C","-"],["680342.PDF","LOCTITE LB 8040 known as SOLVO RUST ICE 400ML EPIG","UN1950","A\u00cbROSOLEN","2.1","-","-","-60 \u00b0C","-"],["733888.PDF","LOCTITE LIOFOL LA 5026-21 25KG","UN1133","LIJMEN","3","-","II","-4 \u00b0C","-"],["760225 (1).PDF","LOCTITE LB 8040 known as Loctite 8040 Frz&Rel 400mlx12","UN1950","AEROSOLS","2.1","-","-","-60 \u00b0C","-"],["760225 (1).PDF","LOCTITE LB 8040 known as Loctite 8040 Frz&Rel 400mlx12","UN1950","AEROSOLS","2.1","-","-","-60 \u00b0C","-"],["760225 (2).PDF","LOCTITE LB 8040","UN1950","AEROSOLS","2.1","-","-","-60 \u00b0C","-"],["860240.PDF","TEROSON VR 5000 AE","UN1950","A\u00cbROSOLEN","2.1","-","-","< 0 \u00b0C","-"],["884842.PDF","Pattex No More Nails Exterior","UN3175","VASTE STOFFEN, DIE BRANDBARE VLOEISTOFFEN BEVATTEN, N.E.G.","4.1","-","II","-","petroleum"],["964739.PDF","BONDERITE C-MC SW-DC MAINTENANCE CLEANER known as SCREENWASH DC FA 200L","UN1170","ETHANOL, OPLOSSING","3","-","III","23 \u00b0C","-"],["964740.PDF","BONDERITE C-MC SW-DC known as Screenwash DC","UN1170","ETHANOL, OPLOSSING","3","-","III","23 \u00b0C","-"],["980921.PDF","TEROSON PU 8517 H known as TEROSTAT 8517 H FL 1L","UN1139","COATING SOLUTION","3","-","II","-5.0 \u00b0C","-"],["1110710.PDF","BONDERITE C-MC 302 known as P3-croniclean 302","UN2491","ETHANOLAMINE, OPLOSSING","8","-","III","-","-"],["1151335.PDF","LOCTITE SF 7400","UN1263","VERF","3","-","II","14 \u00b0C","-"],["1210216.PDF","LOCTITE EA 9250 A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III","> 100 \u00b0C","Epoxyhars"],["1238883.PDF","LOCTITE SF 7900 AE 400ML","UN1950","AEROSOLS","2.1","-","-","< -104 \u00b0C","-"],["1269219.PDF","LOCTITE SF 7414 known as LOCTITE 7414 50ML VE48","UN1263","PAINT","3","-","III","30.00 \u00b0C","-"],["1269219.PDF","LOCTITE SF 7414 known as LOCTITE 7414 50ML VE48","UN1263","PAINT","3","-","III","30.00 \u00b0C","-"],["1395591.PDF","BONDERITE L-GP 580 ACHESON known as DAG 580","UN1263","VERF","3","-","II","17 \u00b0C","-"],["1395591.PDF","BONDERITE L-GP 580 ACHESON known as DAG 580","UN1263","VERF","3","-","II","17 \u00b0C","-"],["1551751 (1).PDF","LOCTITE LB 8201 MULTI-SPRAY","UN1950","A\u00cbROSOLEN","2.1","-","-","-97 \u00b0C","-"],["1551751(2).PDF","LOCTITE LB 8201 MULTI-SPRAY","UN1950","AEROSOLS","2.1","-","-","-97 \u00b0C","-"],["1553364.PDF","BONDERITE L-FM CC 1113 ACHESON","UN3253","DINATRIUMTRIOXOSILICAAT (Mengsel)","8","-","III","-","Mengsel"],["1581831 (1).PDF","TEROSON VR 10","UN1268","AARDOLIEDESTILLATEN, N.E.G.","3","-","II","-15.5 \u00b0C","Petroleum naphtha"],["1581831 (2).PDF","TEROSON VR 10","UN1268","AARDOLIEDESTILLATEN, N.E.G.","3","-","II","-15.5 \u00b0C","Petroleum naphtha"],["1581831 (3).PDF","TEROSON VR 10","UN1268","AARDOLIEDESTILLATEN, N.E.G.","3","-","II","-15.5 \u00b0C","Petroleum naphtha"],["1727545.PDF","LOCTITE SF 7800","UN1950","AEROSOLS","2.1","-","-","-97 \u00b0C","Zinc powder"],["1727641.PDF","LOCTITE SF 7800","UN1950","A\u00cbROSOLEN","2.1","-","-","-97 \u00b0C","Zinc powder"],["1727806.PDF","LOCTITE SF 7039 400ML EFAT","UN1950","A\u00cbROSOLEN","2.1","-","-","> -30 \u00b0C","Distillates (Petroleum), hydrotreated light"],["1763780 (1).PDF","LOCTITE SF 7063 known as Loctite 7063 400ML EFAT","UN1950","A\u00cbROSOLEN","2.1","-","-","-19.5 \u00b0C","Solvent Naphtha (Petroleum), Light Aromatic"],["1763780 (1).PDF","LOCTITE SF 7063 known as Loctite 7063 400ML EFAT","UN1950","A\u00cbROSOLEN","2.1","-","-","-19.5 \u00b0C","Solvent Naphtha (Petroleum), Light Aromatic"],["1763780 (2).PDF","LOCTITE SF 7063 known as Loctite 7063 400ML EFAT","UN1950","A\u00cbROSOLEN","2.1","-","-","-19.5 \u00b0C","Solvent Naphtha (Petroleum), Light Aromatic"],["1763780 (2).PDF","LOCTITE SF 7063 known as Loctite 7063 400ML EFAT","UN1950","A\u00cbROSOLEN","2.1","-","-","-19.5 \u00b0C","Solvent Naphtha (Petroleum), Light Aromatic"],["1763782.PDF","LOCTITE SF 7023 CLEANER known as Loctite 7023 400ML EFAT","UN1950","A\u00cbROSOLEN","2.1","-","-","-97 \u00b0C","-"],["1765069.PDF","LOCTITE DURO-TAK 788 EU 180KG","UN1133","ADHESIVES","3","-","II","-13.3 \u00b0C","-"],["1797913.PDF","Pattex PL 150","UN3175","VASTE STOFFEN, DIE BRANDBARE VLOEISTOFFEN BEVATTEN, N.E.G.","4.1","-","II","-","ethylacetaat,petroleum"],["1807018 (1).PDF","LOCTITE PC 7202 A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III","> 95 \u00b0C","bisfenol-A-epichloorhydrinehars"],["1807018 (1).PDF","LOCTITE PC 7202 A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III","> 95 \u00b0C","bisfenol-A-epichloorhydrinehars"],["1807018 (2).PDF","LOCTITE PC 7202 A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">95 \u00b0C","bisfenol-A-epichloorhydrinehars"],["1807018 (3).PDF","LOCTITE PC 7202 B","UN2735","AMINES, LIQUID, CORROSIVE, N.O.S.","8","-","II","118 \u00b0C","Amines, polyethylenepoly-, triethylenetetramine fraction"],["1904625.PDF","TEROSON RB 3216 DR270KG","UN3077","MILIEUGEVAARLIJKE VASTE STOF, N.E.G.","9","-","III","-","zinkoxide,dibenzothiazyldisulfide"],["1925271.PDF","DURO-TAK 387-2287","UN1133","LIJMEN","3","-","II","-5 \u00b0C","-"],["1985655.PDF","VARIAC BRAKE CLEANER","UN1950","A\u00cbROSOLEN","2.1","-","-","-9 \u00b0C","Solvent naphtha"],["1997350.PDF","BONDERITE L-MR 71-2","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">100 \u00b0C","dicyclohexylamine,3-jood-2-propinylbutyl-carbamaat"],["2007249.PDF","LOCTITE LIOFOL LA 6800 12X0,5KG","UN1133","LIJMEN","3","-","III","33 \u00b0C","-"],["2013798.PDF","LOCTITE DURO-TAK 6000 NEU 400ML","UN1950","AEROSOLS","2.1","-","-","-","-"],["2015123 (1).PDF","LOCTITE PC 7227 Part A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III","> 150 \u00b0C","Epoxyhars"],["2015123 (2).PDF","LOCTITE PC 7227 Part A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">150 \u00b0C","Epoxyhars"],["2015123 (3).PDF","LOCTITE PC 7227 Part B","UN1760","BIJTENDE VLOEISTOF, N.E.G.","8","-","II",">100 \u00b0C","Formaldehyde, polymeer met benzeenamine, gehydrateerd, diethyleentriamine"],["2015126 (1).PDF","LOCTITE PC 7227 Part A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">150 \u00b0C","Epoxyhars"],["2015126 (2).PDF","LOCTITE PC 7227 Part A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">150 \u00b0C","Epoxyhars"],["2015126 (3).PDF","LOCTITE PC 7227 Part B","UN1760","BIJTENDE VLOEISTOF, N.E.G.","8","-","II",">100 \u00b0C","Formaldehyde, polymeer met benzeenamine, gehydrateerd, diethyleentriamine"],["2035001 (1).PDF","LOCTITE EA 3422 A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">200 \u00b0C","Epoxyhars"],["2035001 (2).PDF","LOCTITE EA 3422 A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">200 \u00b0C","Epoxyhars"],["2035001 (3).PDF","LOCTITE EA 3422 B","UN2735","AMINEN, VLOEIBAAR, BIJTEND, N.E.G.","8","-","III",">100 \u00b0C","N-Aminopropylmorfoline,polyoxypropyleendiamine"],["2035001 (4) Kopi\u00ebren.PDF","LOCTITE EA 3422 PTA","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">200 \u00b0C","Epoxyhars"],["2035001 (4).PDF","LOCTITE EA 3422 PTA","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">200 \u00b0C","Epoxyhars"],["2056391 (1) Kopi\u00ebren.PDF","LOCTITE EA 9483 A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III","> 93.0 \u00b0C","Epoxyhars"],["2056391 (1).PDF","LOCTITE EA 9483 A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">93.0 \u00b0C","Epoxyhars"],["2056391 (2) Kopi\u00ebren.PDF","LOCTITE EA 9483 A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III","> 93,0 \u00b0C","Epoxyhars"],["2056391 (2).PDF","LOCTITE EA 9483 A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">93.0 \u00b0C","Epoxyhars"],["2056391 (3) Kopi\u00ebren.PDF","LOCTITE EA 9483 B","UN2735","AMINES, LIQUID, CORROSIVE, N.O.S.","8","-","II","> 100 \u00b0C","3,3'-(OXYBIS(2,1-ETHANE-DILOXY))BIS-1-PROPANAMINE"],["2056391 (3).PDF","LOCTITE EA 9483 B","UN2735","AMINEN, VLOEIBAAR, BIJTEND, N.E.G.","8","-","II",">100 \u00b0C","3,3'-(oxybis(2,1-ethaan-diloxy))bis-1-propaanamine"],["2057216.PDF","LOCTITE EA 9466 A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">110 \u00b0C","Epoxyhars"],["2063043 (1) Kopi\u00ebren.PDF","LOCTITE EA 3425 A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">101 \u00b0C","Epoxyhars"],["2063043 (1).PDF","LOCTITE EA 3425 A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III","> 101 \u00b0C","Epoxyhars"],["2063043 (2) Kopi\u00ebren.PDF","LOCTITE EA 3425 A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III","> 101 \u00b0C","Epoxyhars"],["2063043 (2).PDF","LOCTITE EA 3425 A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">101 \u00b0C","Epoxyhars"],["2063043 (3) Kopi\u00ebren.PDF","LOCTITE EA 3425 B","UN2735","AMINEN, VLOEIBAAR, BIJTEND, N.E.G.","8","-","III",">116 \u00b0C","2,4,6-tris(dimethylaminomethyl)-fenol,m-xylyleendiamine"],["2063043 (3).PDF","LOCTITE EA 3425 B","UN2735","AMINEN, VLOEIBAAR, BIJTEND, N.E.G.","8","-","III",">116 \u00b0C","2,4,6-tris(dimethylaminomethyl)-fenol,m-xylyleendiamine"],["2098749.PDF","LOCTITE SF 7063 400ML EGFD","UN1950","A\u00cbROSOLEN","2.1","-","-","-19.5 \u00b0C","Solvent Naphtha (Petroleum), Light Aromatic"],["2098988 Kopi\u00ebren.PDF","LOCTITE SF 7039 AE400ML EGFD/EP","UN1950","A\u00cbROSOLEN","2.1","-","-","> -30 \u00b0C","Distillates (Petroleum), hydrotreated light"],["2098988.PDF","LOCTITE SF 7039 AE400ML EGFD/EP","UN1950","A\u00cbROSOLEN","2.1","-","-","> -30 \u00b0C","Distillates (Petroleum), hydrotreated light"],["2099006 Kopi\u00ebren.PDF","LOCTITE SF 7200 400ML EGFD","UN1950","AEROSOLS","2.1","-","-","-97 \u00b0C","-"],["2099006.PDF","LOCTITE SF 7200 400ML EGFD","UN1950","AEROSOLS","2.1","-","-","-97 \u00b0C","-"],["2099338 Kopi\u00ebren.PDF","LOCTITE SF 7235 600ML EGFD","UN1950","A\u00cbROSOLEN","2.1","-","-","-9 \u00b0C","Hydrocarbons, C6-C7, n-alkanes, isoalkanes, cyclics, <5% n-hexane"],["2099338.PDF","LOCTITE SF 7235 600ML EGFD","UN1950","A\u00cbROSOLEN","2.1","-","-","-9 \u00b0C","Hydrocarbons, C6-C7, n-alkanes, isoalkanes, cyclics, <5% n-hexane"],["2101568 Kopi\u00ebren.PDF","LOCTITE LB 8011 AE400ML EGFD/EP","UN1950","A\u00cbROSOLEN","2.1","-","-","-97 \u00b0C","-"],["2101568.PDF","LOCTITE LB 8011 AE400ML EGFD/EP","UN1950","AEROSOLS","2.1","-","-","-97 \u00b0C","-"],["2139944 Kopi\u00ebren.PDF","BONDERITE O-PC 528 BLACK RFU 23","UN1263","PAINT","3","-","III","23 \u00b0C","Zinc phosphate"],["2139944.PDF","BONDERITE O-PC 528 BLACK RFU 23","UN1263","PAINT","3","-","III","23 \u00b0C","Zinc phosphate"],["2163271 Kopi\u00ebren.PDF","TEROSON SB 914 CAN680G EGFD","UN1133","LIJMEN","3","-","II","< 0 \u00b0C","-"],["2163271.PDF","TEROSON SB 914 CAN680G EGFD","UN1133","LIJMEN","3","-","II","< 0 \u00b0C","-"],["2185127.PDF","TEROSON RB 3216 HO25KG","UN3077","MILIEUGEVAARLIJKE VASTE STOF, N.E.G.","9","-","III","-","zinkoxide,dibenzothiazyldisulfide"],["2314476.PDF","DAREX\u00ae SP 1427-101:0152C1E","UN3295","KOOLWATERSTOFFEN, VLOEIBAAR, N.E.G.","3","-","III","59 \u00b0C","N.E.G."],["2325872.PDF","LOCTITE SI 5910 Aerosol","UN1950","A\u00cbROSOLEN","2.2","-","-","-","-"],["2344861 (1).PDF","LOCTITE EA 9492 A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III","> 248,0 \u00b0C","bisfenol-F-epichloorhydrinehars,bisfenol-A-epichloorhydrinehars"],["2344861 (2).PDF","LOCTITE EA 9492 A","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III",">248 \u00b0C","bisfenol-F-epichloorhydrinehars,bisfenol-A-epichloorhydrinehars"],["2344861 (3).PDF","LOCTITE EA 9492 LI B","UN2735","AMINES, LIQUID, CORROSIVE, N.O.S.","8","-","II",">130 \u00b0C","3,6-Diazaoctaneethylenediamine adduct,Triethylenetetramine"],["2347378.PDF","LOCTITE LIOFOL LA 2798","UN1133","LIJMEN","3","-","II","-4 \u00b0C","-"],["2347379.PDF","LOCTITE LIOFOL LA 2798","UN1133","LIJMEN","3","-","II","-4 \u00b0C","-"],["2438584.PDF","BONDERITE C-AK 208 ALKALINE CLEANER","UN3266","BIJTENDE BASISCHE ANORGANISCHE VLOEISTOF, N.E.G.","8","-","II","-","natriumhydroxide,kaliumhydroxide"],["2463864.PDF","TEROSON PU FL PLUS","UN1268","AARDOLIEDESTILLATEN, N.E.G.","3","-","II","-15.5 \u00b0C","Petroleum naphtha"],["2498805.PDF","BONDERITE C-IC 740 E ACID CLEANER","UN2796","ZWAVELZUUR (Oplossing)","8","-","II","-","-"],["2556332.PDF","BONDERITE M-NT 415 B CONVERSION COATING","UN2922","BIJTENDE VLOEISTOF, GIFTIG, N.E.G.","8","6.1","II","-","hexafluorzirkoniumzuur,Fluorwaterstofzuur"],["2577420.PDF","BONDERITE M-NT 1455T CONVERSION COATING","UN3264","BIJTENDE ZURE ANORGANISCHE VLOEISTOF, N.E.G.","8","-","III","63 \u00b0C","hexafluortitaanzuur,fosforzuur"],["2578903.PDF","BONDERITE S-FN 6748 CORROSION PROTECTIVE COATING","UN2491","ETHANOLAMINE, OPLOSSING","8","-","III",">100 \u00b0C","-"],["2583622.PDF","BONDERITE S-ST 6776 LO PAINT STRIPPER AERO","UN3412","MIERENZUUR (Oplossing)","8","-","III",">93 \u00b0C","Oplossing"],["2587405.PDF","BONDERITE C-MC 31110 JC23RWE","UN1789","CHLOORWATERSTOFZUUR (Oplossing)","8","-","II","-","-"],["2587457.PDF","BONDERITE M-AD NI-111 JC23KG","UN3264","BIJTENDE ZURE ANORGANISCHE VLOEISTOF, N.E.G.","8","-","II","-","fosforzuur, nikkelbis(dihydrogeenfosfaat)"],["2588567.PDF","LOCTITE LB 8201 200 ml AE EFAT","UN1950","A\u00cbROSOLEN","2.1","-","-","-97 \u00b0C","-"],["2670078.PDF","TEROSON BOND BLACK PRIMER","UN1139","BESCHERMLAK, OPLOSSING","3","-","II","-5.0 \u00b0C","-"],["2670908.PDF","TEROSON BOND ALL-IN-ONE PRIMER","UN1139","BESCHERMLAK, OPLOSSING","3","-","II","-2.5 \u00b0C","-"],["2706394.PDF","LOCTITE LIOFOL HS 1181","UN1133","ADHESIVES (Cyclohexane)","3","-","II","-18 \u00b0C","Cyclohexane"],["2717162 (1).PDF","MDF KIT ACTIVATOR","UN1950","A\u00cbROSOLEN","2.1","-","-","60 \u00b0C","-"],["2717162 (2).PDF","MDF KIT SUPER GLUE","UN3334","Aviation regulated liquid, n.o.s.","9","-","III","80-93.4 \u00b0C","Cyanoacrylate ester"],["2732332.PDF","LOCTITE SF 770 Primer (Upgrade)","UN1220","ISOPROPYLACETAAT","3","-","II","4 \u00b0C","-"],["2790802.PDF","TEROSON RB R2000 HS BK BO1L EGFD","UN1139","BESCHERMLAK, OPLOSSING","3","-","II","< -10 \u00b0C","Hydrocarbons, C6-C7, n-alkanes, isoalkanes, cyclics, <5% n-hexane"],["2805525.PDF","BONDERITE M-NT 404 REPL S CONVERSION COATING CT1020KG","UN2922","BIJTENDE VLOEISTOF, GIFTIG, N.E.G.","8","6.1","II","-","Fluorwaterstofzuur,salpeterzuur"],["2813086.PDF","LOCTITE 270 BO 50ML EFAT","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III","150 \u00b0C","3,3,5-trimethylcyclohexylmethacrylaat"],["2813087.PDF","LOCTITE 510 TTL 50ML EFAT","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III","> 93 \u00b0C","1,1'-(methyleendi-p-fenyleen)bismaleimid"],["2839291 (1).PDF","LOCTITE TITEFOAM Big Gaps 12oz 12SC","UN1950","AEROSOLS","2.1","-","-","-","-"],["2839291 (2).PDF","LOCTITE TITEFOAM Big Gaps 12oz 12SC","UN1950","AEROSOLS","2.1","-","-","-","-"],["2840636.PDF","TEROSON SB 3120 AE500ML","UN1950","A\u00cbROSOLEN","2.1","-","-","27.5 \u00b0C","Nonane,Zinc oxide"],["2844058.PDF","BONDERITE M-AC AL2000","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III","-","Zinkfosfaat tetrahydraat"],["2865420.PDF","PREPALENE X","UN3082","MILIEUGEVAARLIJKE VLOEISTOF, N.E.G.","9","-","III","-","zinkfosfaat"],["2990052.PDF","LOCTITE POWERGRAB ALL PURPOSE","UN3175","SOLIDS CONTAINING FLAMMABLE LIQUID, N.O.S.","4.1","-","II","-","petroleum"],["3021727 (1).PDF","TEROSON VR 155 AE150ml EGFD/SE/NO/DA","UN1950","AEROSOLS","2.1","-","-","27 \u00b0C","-"],["3021727 (2).PDF","TEROSON VR 10","UN1268","AARDOLIEDESTILLATEN, N.E.G.","3","-","II","-15.5 \u00b0C","Petroleum naphtha"],["3021727 (3).PDF","Terokal-9225 Komp.A","-","-","-","-","-","-","-"],["3097748.PDF","TEROSON EP 4552 GB HO","UN3077","MILIEUGEVAARLIJKE VASTE STOF, N.E.G.","9","-","III","-","Epoxyhars"]];
+var DGD_ALLEEN_LUCHT = { '3334': true, '3335': true };
+var DGD_PSN_EN = {
+  '1133': 'ADHESIVES', '1139': 'COATING SOLUTION', '1170': 'ETHANOL SOLUTION', '1219': 'ISOPROPANOL',
+  '1220': 'ISOPROPYL ACETATE', '1263': 'PAINT', '1268': 'PETROLEUM DISTILLATES, N.O.S.',
+  '1759': 'CORROSIVE SOLID, N.O.S.', '1760': 'CORROSIVE LIQUID, N.O.S.', '1789': 'HYDROCHLORIC ACID',
+  '1790': 'HYDROFLUORIC ACID', '1805': 'PHOSPHORIC ACID, SOLUTION', '1814': 'POTASSIUM HYDROXIDE SOLUTION',
+  '1823': 'SODIUM HYDROXIDE, SOLID', '1866': 'RESIN SOLUTION', '1950': 'AEROSOLS',
+  '1993': 'FLAMMABLE LIQUID, N.O.S.', '2052': 'DIPENTENE', '2491': 'ETHANOLAMINE SOLUTION',
+  '2735': 'AMINES, LIQUID, CORROSIVE, N.O.S.', '2796': 'SULPHURIC ACID with not more than 51% acid',
+  '2922': 'CORROSIVE LIQUID, TOXIC, N.O.S.', '3077': 'ENVIRONMENTALLY HAZARDOUS SUBSTANCE, SOLID, N.O.S.',
+  '3082': 'ENVIRONMENTALLY HAZARDOUS SUBSTANCE, LIQUID, N.O.S.', '3175': 'SOLIDS CONTAINING FLAMMABLE LIQUID, N.O.S.',
+  '3253': 'DISODIUM TRIOXOSILICATE', '3259': 'AMINES, SOLID, CORROSIVE, N.O.S.',
+  '3262': 'CORROSIVE SOLID, BASIC, INORGANIC, N.O.S.', '3264': 'CORROSIVE LIQUID, ACIDIC, INORGANIC, N.O.S.',
+  '3266': 'CORROSIVE LIQUID, BASIC, INORGANIC, N.O.S.', '3295': 'HYDROCARBONS, LIQUID, N.O.S.',
+  '3412': 'FORMIC ACID'
+};
+/* Nederlandse technische namen uit de export -> Engels voor de DGD */
+var DGD_TECH_EN = {
+  'Epoxyhars': 'epoxy resin',
+  'bisfenol-A-epichloorhydrinehars': 'bisphenol-A-epichlorohydrin resin',
+  'bisfenol-F-epichloorhydrinehars,bisfenol-A-epichloorhydrinehars': 'bisphenol-F-epichlorohydrin resin, bisphenol-A-epichlorohydrin resin',
+  'zinkoxide,dibenzothiazyldisulfide': 'zinc oxide, dibenzothiazyl disulphide',
+  'zinkoxide': 'zinc oxide',
+  'heptanen,isopropanol': 'heptanes, isopropanol',
+  'isoforon diamine,2-methylpentaan-1,5-diamine': 'isophorone diamine, 2-methylpentane-1,5-diamine',
+  'isoforon diamine': 'isophorone diamine',
+  'Formaldehyde, polymeer met benzeenamine, gehydrateerd, diethyleentriamine': 'formaldehyde, polymer with benzenamine, hydrogenated, diethylenetriamine',
+  '2,4,6-tris(dimethylaminomethyl)-fenol,m-xylyleendiamine': '2,4,6-tris(dimethylaminomethyl)phenol, m-xylylenediamine',
+  'Zwavelzuur,hexafluortitaanzuur': 'sulphuric acid, hexafluorotitanic acid',
+  'natriumhydroxide': 'sodium hydroxide',
+  'natriumhydroxide,kaliumhydroxide': 'sodium hydroxide, potassium hydroxide',
+  'ethylacetaat,petroleum': 'ethyl acetate, petroleum',
+  'dicyclohexylamine,3-jood-2-propinylbutyl-carbamaat': 'dicyclohexylamine, 3-iodo-2-propynyl butylcarbamate',
+  'N-Aminopropylmorfoline,polyoxypropyleendiamine': 'N-aminopropylmorpholine, polyoxypropylenediamine',
+  "3,3'-(oxybis(2,1-ethaan-diloxy))bis-1-propaanamine": "3,3'-(OXYBIS(2,1-ETHANE-DILOXY))BIS-1-PROPANAMINE",
+  'hexafluorzirkoniumzuur,Fluorwaterstofzuur': 'hexafluorozirconic acid, hydrofluoric acid',
+  'hexafluortitaanzuur,fosforzuur': 'hexafluorotitanic acid, phosphoric acid',
+  'fosforzuur, nikkelbis(dihydrogeenfosfaat)': 'phosphoric acid, nickel bis(dihydrogen phosphate)',
+  'Fluorwaterstofzuur,salpeterzuur': 'hydrofluoric acid, nitric acid',
+  '3,3,5-trimethylcyclohexylmethacrylaat': '3,3,5-trimethylcyclohexyl methacrylate',
+  "1,1'-(methyleendi-p-fenyleen)bismaleimid": "1,1'-(methylenedi-p-phenylene)bismaleimide",
+  'Zinkfosfaat tetrahydraat': 'zinc phosphate tetrahydrate',
+  'zinkfosfaat': 'zinc phosphate'
+};
+var DGD_TECH_LEEG = { '': true, '-': true, 'mengsel': true, 'oplossing': true, 'n.e.g.': true, 'n.o.s.': true };
+
+function dgdMdSleutel(s) { return String(s || '').replace(/\s+/g, '').toLowerCase(); }
+var DGD_TECH_EN_N = (function () { const m = {}; for (const k of Object.keys(DGD_TECH_EN)) m[dgdMdSleutel(k)] = DGD_TECH_EN[k]; return m; })();
+
+/* "-97 °C", "> -30 °C", "< 0 °C", "40-50 °C" -> { txt: 'Flp -97C', val, bound, bereik } */
+function dgdMdFlp(s) {
+  const t = String(s || '').replace(/−/g, '-').trim();
+  if (!t || t === '-') return null;
+  const m = /([<>≤≥])?\s*(-?\d+(?:[.,]\d+)?)(?:\s*-\s*(-?\d+(?:[.,]\d+)?))?\s*°?\s*C/i.exec(t);
+  if (!m) return null;
+  const bound = m[1] === '≤' ? '<' : (m[1] === '≥' ? '>' : (m[1] || ''));
+  const val = parseFloat(m[2].replace(',', '.'));
+  if (!isFinite(val)) return null;
+  const txtVal = (Math.abs(val % 1) < 1e-9) ? String(Math.round(val)) : String(val);
+  return { txt: 'Flp ' + bound + txtVal + 'C', val, bound, bereik: !!m[3], ruw: t };
+}
+function dgdMdNodigFlp(c) { return c.cl === '3' || /^2\.1/.test(c.cl || '') || c.sub === '3'; }
+
+/* ruwe exportregels -> { map: idh -> { product, comps: [...], nietDg }, aantal } */
+function dgdMdBouw(raw) {
+  const map = {};
+  for (const r of (raw || [])) {
+    const idh = (String(r[0] || '').match(/^\s*(\d+)/) || [])[1];
+    if (!idh) continue;
+    const e = map[idh] || (map[idh] = { product: String(r[1] || '').trim(), comps: [], nietDg: 0 });
+    const un = String(r[2] || '').replace(/\D/g, '');
+    if (!un) { e.nietDg++; continue; }
+    if (e.comps.some(c => c.un === un)) continue;          /* zelfde stof meerdere keren in de set */
+    const leeg = v => { const x = String(v == null ? '' : v).trim(); return (x === '-' ? '' : x); };
+    const techRuw = leeg(r[8]);
+    const techEN = DGD_TECH_LEEG[techRuw.toLowerCase()] ? '' : (DGD_TECH_EN_N[dgdMdSleutel(techRuw)] || techRuw);
+    e.comps.push({ un, cl: leeg(r[4]), sub: leeg(r[5]), pg: leeg(r[6]).toUpperCase(), flp: dgdMdFlp(r[7]),
+                   flpRuw: leeg(r[7]), psnRuw: leeg(r[3]), tech: techEN, product: String(r[1] || '').trim() });
+  }
+  return { map, aantal: Object.keys(map).length };
+}
+
+const DGD_MD_KEY = 'henkel_dg_masterdata_v1';
+let DGD_MD = null;
+function dgdMd() {
+  if (DGD_MD) return DGD_MD;
+  let raw = DGD_MD_RAW, bron = { naam: DGD_MD_BRON_STD.naam, datum: DGD_MD_BRON_STD.datum, ingebouwd: true };
+  try {
+    const opgeslagen = JSON.parse(localStorage.getItem(DGD_MD_KEY) || 'null');
+    if (opgeslagen && Array.isArray(opgeslagen.raw) && opgeslagen.raw.length) {
+      raw = opgeslagen.raw; bron = { naam: opgeslagen.naam || 'msds_export.xlsx', datum: opgeslagen.datum || '', ingebouwd: false };
+    }
+  } catch (e) {}
+  DGD_MD = dgdMdBouw(raw);
+  DGD_MD.bron = bron;
+  return DGD_MD;
+}
+/* nieuwe MSDS-export inlezen (blad "MSDS Data"): ruwe regels, of null als het geen export is */
+function dgdMdUitWerkboek(wb) {
+  const sn = wb.SheetNames.find(n => n.trim().toLowerCase() === 'msds data') || wb.SheetNames[0];
+  const aoa = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: false, defval: '' });
+  if (!aoa.length) return null;
+  const kop = aoa[0].map(v => String(v || '').trim().toLowerCase());
+  const k = n => kop.indexOf(n);
+  const idx = [k('file name'), k('product name'), k('un number'), k('proper shipping name'), k('hazard class'),
+               k('hazard subclass'), k('packing group'), k('flash point'), k('technical name')];
+  if (idx[0] < 0 || idx[2] < 0 || idx[4] < 0) return null;
+  return aoa.slice(1).filter(r => String(r[idx[0]] || '').trim())
+    .map(r => idx.map(i => (i < 0 ? '' : String(r[i] == null ? '' : r[i]).trim())));
+}
+
+/* tekst op komma's splitsen, niet binnen haakjes */
+function dgdMdSplit(s) {
+  const out = []; let d = 0, cur = '';
+  for (const ch of String(s || '')) {
+    if (ch === '(') d++;
+    if (ch === ')') d = Math.max(0, d - 1);
+    if (ch === ',' && d === 0) { out.push(cur.trim()); cur = ''; } else cur += ch;
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out.filter(Boolean);
+}
+/* laatste haakjesgroep aan het eind van een tekst (technische naam), met geneste haakjes */
+function dgdMdLaatsteHaakjes(s) {
+  s = String(s || '').trim();
+  if (!s.endsWith(')')) return '';
+  let d = 0;
+  for (let i = s.length - 1; i >= 0; i--) {
+    if (s[i] === ')') d++;
+    else if (s[i] === '(') { d--; if (d === 0) return s.slice(i + 1, s.length - 1).trim(); }
+  }
+  return '';
+}
+
+/* UN-omschrijving voor de DGD opbouwen: masterdata leidend voor UN, klasse, subklasse,
+   verpakkingsgroep en vlampunt; LTD QTY / EmS / MARINE POLLUTANT / tunnelcode uit Excel. */
+function dgdMdTekst(c, excelTekst) {
+  const notes = [];
+  const varianten = (typeof dgdUnVariants === 'function') ? dgdUnVariants(excelTekst) : {};
+  const xv = varianten[c.un] || '';
+  const tokens = dgdMdSplit(xv);
+  const isKlasse = t => /^[1-9](\.[1-6])?(\s*\(\s*[1-9](\.[1-6])?\s*\))?$/.test(t);
+  let ki = tokens.findIndex((t, i) => i >= 1 && isKlasse(t));
+  const kop = ki >= 1 ? tokens.slice(0, ki).join(', ') : (tokens[0] || '');
+  const rest = ki >= 1 ? tokens.slice(ki + 1) : tokens.slice(1);
+  let psn = DGD_PSN_EN[c.un] || '';
+  if (c.un === '3412') psn = c.pg === 'II' ? 'FORMIC ACID with not less than 10% but not more than 85% acid by mass'
+                                           : 'FORMIC ACID with not less than 5% but less than 10% acid by mass';
+  if (!psn) {
+    psn = kop.replace(/^UN\s*\d{4}\s*/i, '').replace(/\s*\([^()]*(?:\([^()]*\)[^()]*)*\)\s*$/, '').trim();
+    if (psn) notes.push('UN' + c.un + ': Engelse vervoersnaam staat niet in de tool; die uit de Excel is gebruikt (' + psn + ').');
+    else { psn = c.psnRuw; notes.push('UN' + c.un + ': geen Engelse vervoersnaam bekend; de naam uit het MSDS is gebruikt (' + psn + ') — controleer.'); }
+  }
+  const nos = /N\.O\.S\./i.test(psn);
+  const excelTech = xv ? dgdMdLaatsteHaakjes(kop) : '';
+  const tech = nos ? (excelTech || c.tech) : '';
+  if (nos && !tech) notes.push('UN' + c.un + ': N.O.S.-omschrijving zonder technische naam (niet in Excel en niet in de masterdata).');
+  const delen = ['UN' + c.un + ' ' + psn + (tech ? ' (' + tech + ')' : ''), c.cl + (c.sub ? ' (' + c.sub + ')' : '')];
+  if (c.pg) delen.push(c.pg);
+  if (dgdMdNodigFlp(c)) {
+    if (c.flp) {
+      delen.push(c.flp.txt);
+      if (c.flp.bereik) notes.push('UN' + c.un + ': vlampunt in het MSDS is een bereik (' + c.flp.ruw + '); de laagste waarde staat op de DGD.');
+    } else {
+      const xf = rest.find(t => /^Fl(?:ash)?\s*p/i.test(t));
+      if (xf) { delen.push(xf); notes.push('UN' + c.un + ': geen vlampunt in de masterdata; het vlampunt uit de Excel is gebruikt (' + xf + ').'); }
+    }
+  }
+  const houd = [];
+  for (const t of rest) {
+    if (/^(I{1,3})$/.test(t) || /^Fl(?:ash)?\s*p/i.test(t) || isKlasse(t) || /^\(\s*[1-9](\.[1-6])?\s*\)$/.test(t)) continue;
+    if (/^S-[A-Z]$/.test(t) && houd.length && /^F-[A-J]$/.test(houd[houd.length - 1])) { houd[houd.length - 1] += ',' + t; continue; }
+    houd.push(t);
+  }
+  if (!xv && /LTD\s*QTY/i.test(String(excelTekst || ''))) houd.push('LTD QTY');
+  return { tekst: delen.concat(houd).join(', '), notes };
+}
+
+/* Excel-regels van de maker volgens de masterdata aanpassen (stap vóór het groeperen). */
+function dgdMdToepassen(rows, notes) {
+  const md = dgdMd();
+  const uit = [], gemeld = {};
+  const meld = (idh, tekst) => { const k = idh + '|' + tekst; if (!gemeld[k]) { gemeld[k] = 1; notes.push(tekst); } };
+  for (const r of rows) {
+    const idh = String(r.idh == null ? '' : r.idh).replace(/\D/g, '');
+    const unKol = String(r.un == null ? '' : r.un).replace(/\D/g, '');
+    const e = idh ? md.map[idh] : null;
+    if (!e || r._duoOf) { uit.push(r); continue; }
+    if (typeof DGD_COMBI_SPLIT !== 'undefined' && DGD_COMBI_SPLIT[idh]) { uit.push(r); continue; }   /* met rederijen vastgelegde splitsing */
+    const comps = e.comps.filter(c => !DGD_ALLEEN_LUCHT[c.un]);
+    const lucht = e.comps.filter(c => DGD_ALLEEN_LUCHT[c.un]);
+    if (lucht.length) meld(idh, 'IDH ' + idh + ': ' + lucht.map(c => 'UN' + c.un).join(', ') + ' geldt alleen voor luchtvracht en staat niet op de zee-DGD (masterdata).');
+    if (!comps.length) {
+      if (unKol && unKol !== '0') meld(idh, 'IDH ' + idh + ': volgens de masterdata geen gevaarlijk goed voor zeevracht, maar de Excel noemt UN' + unKol + '. De Excel-gegevens zijn aangehouden — controleer.');
+      uit.push(r); continue;
+    }
+    if (!unKol || unKol === '0') meld(idh, 'IDH ' + idh + ': de Excel noemt geen UN-nummer, maar volgens de masterdata is dit ' +
+      comps.map(c => 'UN' + c.un).join(' + ') + '. Het artikel staat daarom op de DGD — controleer of de zeevrachtboeking dit DG bevat.');
+    const n = comps.length;
+    for (const c of comps) {
+      const res = dgdMdTekst(c, r.unInfo);
+      for (const t of res.notes) meld(idh, 'IDH ' + idh + ': ' + t);
+      const k = Object.assign({}, r, { un: c.un, unInfo: res.tekst, _md: true });
+      if (n > 1) { k.gross = (parseFloat(r.gross) || 0) / n; k._duoOf = idh; }
+      uit.push(k);
+    }
+    if (n === 1 && unKol && unKol !== '0' && unKol !== comps[0].un) {
+      meld(idh, 'IDH ' + idh + ': de UN-kolom zegt UN' + unKol + ', de masterdata UN' + comps[0].un + '. De masterdata is gebruikt.');
+    }
+    if (n > 1) meld(idh, 'IDH ' + idh + ' bestaat volgens de masterdata uit ' + n + ' gevaarlijke stoffen (' +
+      comps.map(c => 'UN' + c.un).join(' + ') + '): elk UN-nummer een eigen regel, gewicht gelijk verdeeld, stuks en colli bij beide volledig. ' +
+      'Controleer dat alle UN-nummers op de zeevrachtboeking staan (les 14010/COSCO).');
+  }
+  return uit;
+}
+/* DG-MASTERDATA-END */
+
 function dgd2FromRows(rows, opts) {
   opts = opts || {};
   const notes = [];
@@ -10085,6 +10361,9 @@ function dgd2FromRows(rows, opts) {
          conflict en moet er gekozen worden — de tool gokt nooit zelf. */
   const duoNotes = [];
   const expanded = [];
+  /* 4a-nul. DG-masterdata (MSDS-export) is leidend: UN, klasse, subklasse,
+     verpakkingsgroep en vlampunt per IDH; meerdere stoffen = meerdere regels. */
+  rows = dgdMdToepassen(rows, duoNotes);
   /* 4a-bis. Set met twee STOFFEN, bewezen door een meegesleepte MSDS (zoals IDH
      195826: UN3082-hars + UN1759-verharder, terwijl Henkels Excel alleen UN3082
      noemt). IMDG 5.4.1 eist declaratie van ALLE gevaarlijke stoffen \u2014 de
@@ -10109,7 +10388,7 @@ function dgd2FromRows(rows, opts) {
       continue;
     }
     const ms = msdsAlle[String(r.idh)];
-    if (ms && ms.docs && ms.docs.length >= 2 && !r._duoOf) {
+    if (ms && ms.docs && ms.docs.length >= 2 && !r._duoOf && !r._md) {
       const ltd = /LTD\s*QTY/i.test(String(r.unInfo || ''));
       for (const doc of ms.docs) {
         const c = Object.assign({}, r);
@@ -10400,7 +10679,7 @@ function dgd2FromRows(rows, opts) {
   }
 
   for (const b of dg.blocks) {
-    if (!/Fl(?:ash)?\s*p(?:oint)?\.?\s*[-\u2212]?\s*\d/i.test(String(b.unText || '')) && /^2\.1/.test(String(dgdHazClass(b.unText) || ''))) {
+    if (!/Fl(?:ash)?\s*p(?:oint)?\.?\s*[<>]?\s*[-\u2212]?\s*\d/i.test(String(b.unText || '')) && /^2\.1/.test(String(dgdHazClass(b.unText) || ''))) {
       notes.push('UN' + b.un + ' (aerosols): geen vlampunt in de omschrijving. Gaat deze zending via MSC of een andere ' +
         'rederij die het vlampunt eist? Vul het dan aan vanuit de MSDS (sectie 9), bv. \u201c, Flp -97C\u201d \u2014 anders komt de pre-DGD terug.');
     }
@@ -10518,7 +10797,7 @@ function dgd2QualityGate(dg) {
       }
     }
     const flpCls = dgdHazClass(b.unText);
-    const flpAanwezig = /Fl(?:ash)?\s*p(?:oint)?\.?\s*[-\u2212]?\s*\d/i.test(String(b.unText || ''));
+    const flpAanwezig = /Fl(?:ash)?\s*p(?:oint)?\.?\s*[<>]?\s*[-\u2212]?\s*\d/i.test(String(b.unText || ''));
     if (!flpAanwezig && (flpCls === '3' || /^2\.1/.test(String(flpCls || '')))) {
       add('flp_ontbreekt', 'UN' + b.un + ' (klasse ' + flpCls + '): het vlampunt (Flp) ontbreekt in de omschrijving. ' +
         'Vul het vlampunt uit de MSDS (sectie 9) in bij het veld \u201cVlampunt\u201d onder het UN-blok en klik Bijwerken.');
@@ -10563,7 +10842,7 @@ function dgd2QualityGate(dg) {
       }
     }
 
-    const heeftFlp = /Fl(?:ash)?\s*p(?:oint)?\.?\s*[-\u2212]?\s*\d/i.test(String(b.unText || ''));
+    const heeftFlp = /Fl(?:ash)?\s*p(?:oint)?\.?\s*[<>]?\s*[-\u2212]?\s*\d/i.test(String(b.unText || ''));
     if (!heeftFlp && b.cls === '3') {
       add('flp_klasse3', 'UN' + b.un + ' (klasse 3): het vlampunt ontbreekt in de UN-omschrijving (Excel-veld \u201cUN info\u201d). ' +
         'IMDG vereist het vlampunt bij klasse 3 \u2014 vul het aan vanuit de MSDS.');
@@ -10573,9 +10852,9 @@ function dgd2QualityGate(dg) {
 
     const ref = DGD_IMDG[String(b.un)];
     if (ref) {
-      if (b.cls && ref.kl && b.cls !== ref.kl) {
+      if (b.cls && ref.kl && ref.kl.split('|').indexOf(b.cls) < 0) {
         add('klasse_fout', 'UN' + b.un + ': de omschrijving zegt klasse ' + b.cls +
-          ', maar volgens de IMDG-lijst is UN' + b.un + ' klasse ' + ref.kl + '.');
+          ', maar volgens de IMDG-lijst is UN' + b.un + ' klasse ' + ref.kl.split('|').join(' of ') + '.');
       }
       const pg = dgdPackGroup(b.unText);
       if (pg && ref.pgs.length && ref.pgs.indexOf(pg) < 0) {
@@ -10843,6 +11122,40 @@ function dgd2ApplyDgdHeader() {
 (function dgd2MultiPl() {
   const orig = maakAddFile;
   maakAddFile = async function (file) {
+    /* Een nieuwe MSDS-export (msds_export.xlsx, blad "MSDS Data") vervangt de
+       ingebouwde DG-masterdata en wordt in deze browser onthouden. */
+    if (/\.xlsx$/i.test((file && file.name) || '')) {
+      try {
+        const wbMd = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array' });
+        const raw = dgdMdUitWerkboek(wbMd);
+        if (raw && raw.length) {
+          const vandaag = new Date();
+          const datum = String(vandaag.getDate()).padStart(2, '0') + '-' + String(vandaag.getMonth() + 1).padStart(2, '0') + '-' + vandaag.getFullYear();
+          try { localStorage.setItem(DGD_MD_KEY, JSON.stringify({ naam: file.name, datum, raw })); } catch (e) {}
+          DGD_MD = dgdMdBouw(raw);
+          DGD_MD.bron = { naam: file.name, datum, ingebouwd: false };
+          if (state.maak && state.maakRows && state.maakOpts) {
+            const oud = state.maak;
+            const rebuilt = dgdFromRows(state.maakRows, Object.assign({}, state.maakOpts,
+              { plNet: state.maakPlNet || null, unPick: state.maakUnPick || null }));
+            rebuilt.destInput = oud.destInput; rebuilt.bp = oud.bp;
+            rebuilt.cmr = oud.cmr; rebuilt.consignee = oud.consignee;
+            rebuilt.ref600 = oud.ref600; rebuilt.shipRef = oud.shipRef;
+            rebuilt.fwdRef = oud.fwdRef; rebuilt.destination = oud.destination;
+            rebuilt.loading = oud.loading; rebuilt.subjectHint = oud.subjectHint;
+            dgd2ApplyUnTexts(rebuilt);
+            dgd2ApplyFlpBron(rebuilt);
+            dgd2LtdQtyPas(rebuilt);
+            rebuilt.blockers = dgd2QualityGate(rebuilt);
+            state.maak = rebuilt;
+            maakRender();
+            dgd2ApplyDgdHeader();
+          } else if (state.maak) maakRender();
+          maakShowNote([file.name + ': DG-masterdata bijgewerkt (' + DGD_MD.aantal + ' artikelen). Deze gegevens zijn vanaf nu leidend voor de DGD.'], 'info');
+          return;
+        }
+      } catch (e) { /* geen MSDS-export: gewoon verder als zending-Excel */ }
+    }
     /* De maker heeft precies twee bronnen nodig: de zending-Excel en de packing
        list(s). Facturen en (systeem-)DGD's die per ongeluk mee gesleept worden
        zijn geen probleem, maar horen niet geparsed te worden als packing list;

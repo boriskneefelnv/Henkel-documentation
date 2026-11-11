@@ -249,6 +249,21 @@ Leest Henkel-DGD-PDF's, groepeert ze op de 600-referentie en controleert:
 
 ---
 
+### DG-masterdata (MSDS-export), toegevoegd 11-11-2026
+- **Bron:** `data/msds_export.xlsx`, blad "MSDS Data". 185 regels, 118 IDH's (de IDH is de bestandsnaam van het MSDS). Ingebouwd in de tool als `DGD_MD_RAW`.
+- **Leidend** in DGD maken v2 voor UN-nummer, klasse, subklasse, verpakkingsgroep en vlampunt per IDH.
+- **Vervoersnaam:** de officiële Engelse IMDG-naam per UN-nummer (`DGD_PSN_EN`), omdat de export grotendeels Nederlands is.
+- **Technische naam** (alleen bij N.O.S.): die uit het Excel-veld "UN info" als dat hetzelfde UN-nummer is, anders de vertaalde naam uit de masterdata (`DGD_TECH_EN`).
+- **LTD QTY, MARINE POLLUTANT, EmS en tunnelcode** blijven uit het Excel-veld komen. In de export staat Limited quantity overal op "-" en Marine pollutant overal op "N" (ook bij UN3082/UN3077); die kolommen zijn dus niet betrouwbaar.
+- **Vlampunt** (bij klasse 3, 2.1 of subklasse 3): grenzen blijven grenzen ("Flp <0C", "Flp >-30C"). Bij een bereik (40-50 °C) wordt de laagste waarde gebruikt. Ontbreekt het vlampunt in de masterdata, dan wordt het Excel-vlampunt gebruikt en anders blokkeert de kwaliteitspoort.
+- **Meerdere gevaarlijke stoffen per IDH** (sets Part A/Part B): elk UN-nummer een eigen regel, gewicht gelijk verdeeld, stuks en colli bij beide volledig. De tool waarschuwt om de zeevrachtboeking te controleren (les 14010). Uitzondering: artikelen in `DGD_COMBI_SPLIT` (IDH 2057216) houden de met de rederijen vastgelegde splitsing. De masterdata noemt voor 2057216 alleen UN3082.
+- **UN3334/UN3335** gelden alleen voor luchtvracht en komen niet op een zee-DGD (IDH 2717162).
+- **Excel zonder UN, masterdata wel:** het artikel komt toch op de DGD, met een melding over de boeking.
+- **DGD controleren (tab 04):** meldt per artikel een afwijking van de masterdata (UN, klasse, verpakkingsgroep, vlampunt) en geeft de juiste omschrijving als correctie.
+- **Nieuwe export:** in DGD maken v2 slepen vervangt de ingebouwde versie. Die keuze wordt in de browser onthouden (localStorage `henkel_dg_masterdata_v1`).
+- **Volledige run (11-11-2026):** alle 118 IDH's leveren een geldige DGD-regel op, behalve IDH 2013798 en 2839291. Dat zijn aerosols zonder vlampunt in de masterdata; daar moet het vlampunt nog bij.
+- **UN1950** mag klasse 2.1, 2.2 of 2.3 zijn. De IMDG-tabel in de tool is daarop aangepast (IDH 250000 en 2325872 zijn 2.2).
+
 ## 7. Module 06/07 — CMR maken en Transportopdracht
 
 Beide modules gebruiken hetzelfde scherm en dezelfde ingelezen bestanden (`toModus` is `cmr` of `to`).
