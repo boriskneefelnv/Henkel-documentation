@@ -903,9 +903,9 @@ tslib/tslib.es6.js:
           <button class="btn-copy" id="xlCopy" type="button" title="Zet CVO/EUR1/ATR/COC/HS tab-gescheiden op het klembord: in Excel plakken vult 5 kolommen in &eacute;&eacute;n keer">Kopieer voor Excel</button>
           <span class="copy-fb" id="xlFb">Gekopieerd &#10003;</span>
         </div>
-        <div class="mail-docs-label" style="margin-top:14px">Excel-regels documentregistratie <span style="text-transform:none;font-weight:400">(Master &middot; 5 witte kolommen (BP File, Reference, IC/EC, Dest, Loading date &mdash; die vult de macro) &middot; Document code &middot; Description &middot; Request date (vandaag) &mdash; &eacute;&eacute;n rij per aangevraagd document, alles in &eacute;&eacute;n keer plakken)</span></div>
+        <div class="mail-docs-label" style="margin-top:14px">Excel-regels documentregistratie <span style="text-transform:none;font-weight:400">(Master &middot; 5 witte kolommen (BP File, Reference, IC/EC, Dest, Loading date &mdash; die vult de macro) &middot; Document code &middot; Description &middot; Aantal &middot; Request date (vandaag); plus een aparte HS-regel &mdash; &eacute;&eacute;n rij per aangevraagd document, alles in &eacute;&eacute;n keer plakken)</span></div>
         <div id="regWrap" style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
-          <table class="xl-tbl reg-tbl"><thead><tr><th>Master</th><th></th><th></th><th></th><th></th><th></th><th>Document code</th><th>Description</th><th>Request date</th></tr></thead>
+          <table class="xl-tbl reg-tbl"><thead><tr><th>Master</th><th></th><th></th><th></th><th></th><th></th><th>Document code</th><th>Description</th><th>Aantal</th><th>Request date</th></tr></thead>
           <tbody id="regBody"></tbody></table>
           <button class="btn-copy" id="regCopy" type="button" title="Zet per aangevraagd document een rij op het klembord (tab-gescheiden): master, 5 lege kolommen, documentcode, documentsoort en de datum van vandaag. In Excel plakken vult alle rijen in &eacute;&eacute;n keer">Kopieer voor documentregistratie</button>
           <span class="copy-fb" id="regFb">Gekopieerd &#10003;</span>
@@ -4520,7 +4520,10 @@ function renderXlRow() {
 
 /* ===== Excel-regels documentregistratie =====
    Per aangevraagd document één rij, in de kolomvolgorde van de documentregistratie:
-   master | 5 lege kolommen (BP File, Reference, IC/EC, Dest, Loading date) | documentcode | documentsoort | datum van vandaag.
+   master | 5 lege kolommen (BP File, Reference, IC/EC, Dest, Loading date) | documentcode | documentsoort | aantal | datum van vandaag.
+   Aantal: EXA altijd 1; CVO, EUR.1, ATR en legalisatie leeg. Daarnaast een aparte HS-regel
+   (code 10001) met als aantal het aantal extra HS-codes, dezelfde berekening als de HS-kolom
+   van de A/0-regel (unieke HS-codes min 1).
    Het dossiernummer is de Ref (NV-nummer) uit het mailpaneel. De codes zijn die van de
    DC Maasvlakte-documentregistratie (71001 EXA, 72200 CVO, 72002 EUR.1, ...).
    Documenten zonder bekende code (copy, coc, embassy) krijgen geen rij en worden gemeld. */
@@ -4538,23 +4541,29 @@ function regDatumVandaag(d) {
   d = d || new Date();
   return String(d.getDate()).padStart(2, '0') + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + d.getFullYear();
 }
-function regExportRows(tokens, dossier, datum) {
+const REG_HS = ['10001', 'HS'];
+function regExportRows(tokens, dossier, datum, hsAantal) {
   const rows = [], gezien = new Set(), zonderCode = [];
   for (const t of (tokens || [])) {
     const m = REG_DOCS[t];
     if (!m) { if (zonderCode.indexOf(t) < 0) zonderCode.push(t); continue; }
     if (gezien.has(m[0])) continue;          /* bv. kvk + gelegaliseerde factuur = één legalisatie-regel */
     gezien.add(m[0]);
-    rows.push([dossier, '', '', '', '', '', m[0], m[1], datum]);
+    rows.push([dossier, '', '', '', '', '', m[0], m[1], m[0] === '71001' ? '1' : '', datum]);
   }
   rows.sort((a, b) => a[6].localeCompare(b[6]));
+  /* aparte HS-regel, los van de documenten; alleen als het aantal te berekenen is */
+  if (hsAantal !== '' && hsAantal != null) rows.push([dossier, '', '', '', '', '', REG_HS[0], REG_HS[1], String(hsAantal), datum]);
   return { rows, zonderCode };
 }
 /* KC-REG-END */
 
 function regHuidig() {
   const dossier = el('mailRef').value.trim();
-  return regExportRows(mailDocsSelected(), dossier, regDatumVandaag());
+  const d = (typeof derived !== 'undefined' && derived) ? derived : null;
+  /* zelfde HS-berekening als de A/0-regel: unieke HS-codes min 1, leeg zolang er geen regels zijn */
+  const hs = xlExportRow(mailDocsSelected(), d && d.pivot ? d.pivot.uniqueHs : 0, !!(d && d.rows && d.rows.length))[4];
+  return regExportRows(mailDocsSelected(), dossier, regDatumVandaag(), hs);
 }
 function renderRegRows() {
   const body = el('regBody'), note = el('regNote');
@@ -4563,9 +4572,10 @@ function renderRegRows() {
   const dossier = el('mailRef').value.trim();
   body.innerHTML = r.rows.length
     ? r.rows.map(row => '<tr>' + row.map((v, i) => '<td' + (i >= 1 && i <= 5 ? ' class="reg-leeg"' : '') + '>' + esc(v || (i === 0 ? '\u2026' : '')) + '</td>').join('') + '</tr>').join('')
-    : '<tr><td colspan="9" style="font-weight:400;color:var(--muted)">Nog geen documenten aangevinkt.</td></tr>';
+    : '<tr><td colspan="10" style="font-weight:400;color:var(--muted)">Nog geen documenten aangevinkt.</td></tr>';
   const meld = [];
   if (!dossier && r.rows.length) meld.push('Vul eerst <b>Ref (NV-nummer)</b> in: dat is het dossiernummer in de eerste kolom.');
+  if (r.rows.length && !r.rows.some(x => x[6] === REG_HS[0])) meld.push('De <b>HS-regel</b> (10001) verschijnt zodra de facturen en packing lists zijn ingelezen; dan is het aantal HS-codes bekend.');
   if (r.zonderCode.length) meld.push('Geen documentcode bekend voor: <b>' + esc(r.zonderCode.join(', ')) + '</b> \u2014 daarvoor komt geen rij; voeg die zelf toe.');
   note.innerHTML = meld.join('<br>');
   note.hidden = !meld.length;
