@@ -8564,8 +8564,11 @@ function maakRender() {
        niet in het Excel-veld \u201cUN info\u201d staat \u2014 met name het vlampunt uit de
        MSDS (\u201c, Flp -97C\u201d). Wijzig hier en klik Bijwerken; de wijziging blijft
        staan, ook wanneer later nog een packing list wordt toegevoegd. */
-    const flpBlok = (dg.blockers || []).some(x => (x.code === 'flp_klasse3' || x.code === 'flp_ontbreekt') && x.msg.indexOf('UN' + b.un) === 0) ||
-                    (dg.makeNotes || []).some(n => n.indexOf('UN' + b.un + ' (aerosols): geen vlampunt') === 0);
+    const flpBlok = (function () {
+      const c = dgdHazClass(b.unText);
+      return (c === '3' || /^2\.1/.test(String(c || ''))) &&
+        !/Fl(?:ash)?\s*p(?:oint)?\.?\s*[<>]?\s*[-\u2212]?\s*\d/i.test(String(b.unText || ''));
+    })();
     html += '<div class="dgd-edit-row"><label style="flex:1">UN' + esc(b.un) + ' \u2014 omschrijving (vak 14)' +
             '<input type="text" style="width:100%" id="maakUnText_' + bi + '" value="' + esc(b.unText) + '"' +
             (flpBlok ? ' class="bad"' : '') + '></label></div>';
@@ -8723,11 +8726,16 @@ function maakRender() {
     const all = dg.blockers || [];
     const hard = all.filter(b => b.code !== 'un_conflict');
     if (!hard.length) { next(); return; }
+    /* na de melding direct naar het lege vlampuntveld springen */
+    setTimeout(() => {
+      const v = [...document.querySelectorAll('[id^="maakFlp_"]')].find(x => !x.value.trim());
+      if (v) { v.scrollIntoView({ block: 'center' }); v.focus(); }
+    }, 0);
     const lijst = hard.slice(0, 12).map(b => '\u2022 ' + b.msg).join('\n');
     const meer = hard.length > 12 ? '\n\u2026 en nog ' + (hard.length - 12) + ' punt(en).' : '';
     alert('Er kan geen DGD/CMR gemaakt worden \u2014 de zending bevat ' + hard.length +
       ' fout' + (hard.length === 1 ? '' : 'en') + ':\n\n' + lijst + meer +
-      '\n\nLos dit op in de bron (Excel/packing list) en lees de zending opnieuw in.');
+      (hard.every(b => b.code === 'flp_ontbreekt') ? '\n\nVul het vlampunt in (het veld staat nu geselecteerd) en klik daarna op Bijwerken.' : '\n\nLos dit op in de bron (Excel/packing list) en lees de zending opnieuw in.'));
   }
 
   /* Poortwachter 1: openstaande UN-conflicten moeten eerst opgelost worden. */
@@ -10806,8 +10814,9 @@ function dgd2QualityGate(dg) {
     const flpCls = dgdHazClass(b.unText);
     const flpAanwezig = /Fl(?:ash)?\s*p(?:oint)?\.?\s*[<>]?\s*[-\u2212]?\s*\d/i.test(String(b.unText || ''));
     if (!flpAanwezig && (flpCls === '3' || /^2\.1/.test(String(flpCls || '')))) {
-      add('flp_ontbreekt', 'UN' + b.un + ' (klasse ' + flpCls + '): het vlampunt (Flp) ontbreekt in de omschrijving. ' +
-        'Vul het vlampunt uit de MSDS (sectie 9) in bij het veld \u201cVlampunt\u201d onder het UN-blok en klik Bijwerken.');
+      const wie = (b.items || []).map(it => 'IDH ' + it.idh + (it.desc ? ' ' + String(it.desc).trim() : '')).join(', ');
+      add('flp_ontbreekt', 'UN' + b.un + ' (klasse ' + flpCls + ') \u2014 ' + wie + ': het vlampunt ontbreekt (niet in de DG-masterdata en niet in de Excel). ' +
+        'Vul het vlampunt uit het MSDS (sectie 9) in bij het rode veld \u201cVlampunt (\u00b0C)\u201d onder dit blok en klik Bijwerken.');
     }
     for (const it of (b.items || [])) {
       const n = it.net, g = it.gross;
@@ -10850,7 +10859,7 @@ function dgd2QualityGate(dg) {
     }
 
     const heeftFlp = /Fl(?:ash)?\s*p(?:oint)?\.?\s*[<>]?\s*[-\u2212]?\s*\d/i.test(String(b.unText || ''));
-    if (!heeftFlp && b.cls === '3') {
+    if (!heeftFlp && b.cls === '3' && !flpCls) {   /* flp_ontbreekt hierboven dekt klasse 3 al */
       add('flp_klasse3', 'UN' + b.un + ' (klasse 3): het vlampunt ontbreekt in de UN-omschrijving (Excel-veld \u201cUN info\u201d). ' +
         'IMDG vereist het vlampunt bij klasse 3 \u2014 vul het aan vanuit de MSDS.');
     }
