@@ -2487,6 +2487,8 @@ const IC_DOCS = {
 /* spelvarianten / alternatieve schrijfwijzen van bestemmingen -> officiële sleutel in IC_DOCS.
    Bv. de haven Coega (Zuid-Afrika) wordt intern ook wel "Couga" geschreven. */
 const IC_DEST_ALIAS = {
+  'NHAVA SEVA': 'NHAVA SHEVA',
+  'NAVA SHEVA': 'NHAVA SHEVA',
   'COUGA': 'COEGA',
   'GQEBERHA': 'COEGA',
   'PORT ELIZABETH': 'COEGA'
@@ -6734,7 +6736,7 @@ const DGD_CONSIGNEE = {
   'CASABLANCA': ['Henkel Group Morocco', 'Parc Oukacha 3, B\u00e2t D01-D02', 'Bd Moulay Slimane', '20580 Ain Sebaa-Casablanca', 'MAROKKO'],
   'TUNIS': ['Henkel Alki Distribution S.A.R', 'Adhesive Technologies', 'R\u00e9sidence LesJardinsDuLac', 'Les Berges du Lac 2', '1053 Tunis', 'TUNESIE']
 };
-const DGD_DEST_ALIAS_MAKE = { COUGA: 'COEGA', GQEBERHA: 'COEGA', 'PORT ELIZABETH': 'COEGA', NHAVA: 'NHAVA SHEVA' };
+const DGD_DEST_ALIAS_MAKE = { COUGA: 'COEGA', GQEBERHA: 'COEGA', 'PORT ELIZABETH': 'COEGA', NHAVA: 'NHAVA SHEVA', 'NHAVA SEVA': 'NHAVA SHEVA', 'NAVA SHEVA': 'NHAVA SHEVA', 'NHAVASHEVA': 'NHAVA SHEVA', JNPT: 'NHAVA SHEVA' };
 
 function dgdMakeConsignee(dest) {
   let key = String(dest || '').trim().toUpperCase();
@@ -10288,7 +10290,9 @@ function dgdMdTekst(c, excelTekst) {
     }
   }
   const houd = [];
-  for (const t of rest) {
+  for (let t of rest) {
+    const pgTunnel = /^(I{1,3})\s*(\([A-E](?:\/[A-E])?\))$/.exec(t);   /* "II(E)" zonder komma in de Excel */
+    if (pgTunnel) t = pgTunnel[2];
     if (/^(I{1,3})$/.test(t) || /^Fl(?:ash)?\s*p/i.test(t) || isKlasse(t) || /^\(\s*[1-9](\.[1-6])?\s*\)$/.test(t)) continue;
     if (/^S-[A-Z]$/.test(t) && houd.length && /^F-[A-J]$/.test(houd[houd.length - 1])) { houd[houd.length - 1] += ',' + t; continue; }
     houd.push(t);
@@ -10306,6 +10310,9 @@ function dgdMdToepassen(rows, notes) {
     const idh = String(r.idh == null ? '' : r.idh).replace(/\D/g, '');
     const unKol = String(r.un == null ? '' : r.un).replace(/\D/g, '');
     const e = idh ? md.map[idh] : null;
+    if (!e && unKol && unKol !== '0') meld(idh, 'IDH ' + idh + (r.desc ? ' (' + String(r.desc).trim() + ')' : '') +
+      ' staat NIET in de DG-masterdata: UN-gegevens en vlampunt komen uit het Excel-veld \u201cUN info\u201d. ' +
+      'Voeg het MSDS van dit artikel toe aan de MSDS-export, of vul ontbrekende gegevens (zoals het vlampunt) hieronder zelf in.');
     if (!e || r._duoOf) { uit.push(r); continue; }
     if (typeof DGD_COMBI_SPLIT !== 'undefined' && DGD_COMBI_SPLIT[idh]) { uit.push(r); continue; }   /* met rederijen vastgelegde splitsing */
     const comps = e.comps.filter(c => !DGD_ALLEEN_LUCHT[c.un]);
@@ -11365,6 +11372,7 @@ const BL_ONTVANGERS = {
    welke documenten een zending nodig heeft. */
 const BL_DEST_ALIAS = {
   'INDIA': 'NHAVA SHEVA',
+  'NHAVA SEVA': 'NHAVA SHEVA',
   'NHAVA': 'NHAVA SHEVA',
   'JNPT':  'NHAVA SHEVA',
   'DUBAI': 'JEBEL ALI'
