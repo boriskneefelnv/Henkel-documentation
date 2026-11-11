@@ -262,6 +262,8 @@ Leest Henkel-DGD-PDF's, groepeert ze op de 600-referentie en controleert:
 - **DGD controleren (tab 04):** meldt per artikel een afwijking van de masterdata (UN, klasse, verpakkingsgroep, vlampunt) en geeft de juiste omschrijving als correctie.
 - **Nieuwe export:** in DGD maken v2 slepen vervangt de ingebouwde versie. Die keuze wordt in de browser onthouden (localStorage `henkel_dg_masterdata_v1`).
 - **Volledige run (11-11-2026):** alle 118 IDH's leveren een geldige DGD-regel op, behalve IDH 2013798 en 2839291. Dat zijn aerosols zonder vlampunt in de masterdata; daar moet het vlampunt nog bij.
+- **Toegevoegd 11-11-2026:** IDH 1880754 (DURO-TAK 387-2054: UN1133, 3, II, Flp -7,8 °C, marine pollutant) en IDH 1848705 (DURO-TAK 387-2516 BULK: UN1133, 3, II, Flp -11,5 °C). De zending-Excel noemde bij 1848705 ten onrechte Flp -4C. De masterdata telt nu 120 artikelen.
+- **Marine pollutant:** de tool neemt de kolom nu mee, maar voegt MARINE POLLUTANT alleen toe bij "Y". In de oorspronkelijke export staat hij overal op "N" en is hij dus niet betrouwbaar.
 - **UN1950** mag klasse 2.1, 2.2 of 2.3 zijn. De IMDG-tabel in de tool is daarop aangepast (IDH 250000 en 2325872 zijn 2.2).
 
 ## 7. Module 06/07 — CMR maken en Transportopdracht
