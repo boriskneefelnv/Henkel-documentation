@@ -5126,25 +5126,50 @@ async function kcParsePicklist(arrayBuffer) {
   let container = '', master = '';
   for (const t of flat) {
     let m = /referentie\s*:?\s*(\d{5,10})/i.exec(t); if (m && !master) master = m[1];
-    m = /extra ref\s*:?\s*(.+)$/i.exec(t); if (m && !container) container = m[1].trim();
+    m = /extra ref\s*:?\s*(.+)$/i.exec(t); if (m && !container) container = m[1].replace(/\s+country\s*:.*$/i, '').trim();
+  }
+  /* Detailregels ("MV 0 72181 1062827585 1 EP 39,0 KA 1560 ST") leveren per artikel de
+     bekende batches en de eenheid (ST of KG). Daarmee lezen we het controleblok robuust:
+     batches zijn niet altijd 10 cijfers (E162087950, SB64142037, L262173315) en artikelen
+     niet altijd 6-7 cijfers (72181, 28495). */
+  const detail = new Map();               /* idh -> Map(batchKey -> eenheid) */
+  const reDet = /^\S+\s+\d+\s+(\d{3,9})\s+(\S+)\s+\d+\s+[A-Z]{1,3}\s+[\d.,]+\s+[A-Z]{1,3}\s+[\d.,]+\s+([A-Z]{1,3})\s*$/;
+  for (const t of flat) {
+    const m = reDet.exec(String(t).trim());
+    if (!m) continue;
+    if (!detail.has(m[1])) detail.set(m[1], new Map());
+    detail.get(m[1]).set(kcKey(m[2]), m[3]);
   }
   const start = flat.findIndex(t => /Controle van de order/i.test(t));
   const rows = [];
   if (start >= 0) {
-    const re = /^(\d{6,7})\s+(.+?)\s+(\d{10})\s+(\d+)\s+([\d.,]+)\s+(\d+)\s*$/;
+    const isNum = x => /^\d+(?:[.,]\d+)?$/.test(x);
     for (let i = start + 1; i < flat.length; i++) {
       const t = String(flat[i]).trim();
       if (/^=+/.test(t) || /ADR-?gegevens/i.test(t)) break;
-      const m = re.exec(t);
-      if (m) {
-        rows.push({
-          del: '', idh: m[1].trim(), batch: m[3].trim(), desc: m[2].trim(),
-          qty: parseInt(m[4], 10),
-          unit: 'ST',
-          colli: parseFloat(String(m[5]).replace(/\./g, '').replace(',', '.')),
-          gross: null, net: null, tka: null
-        });
+      const tok = t.split(/\s+/);
+      /* <artikel> <omschrijving...> <partij> [opmerking] <#stuks> <#collo> <#pallets> */
+      if (tok.length < 5 || !/^\d{3,9}$/.test(tok[0])) continue;
+      const n = tok.length;
+      if (!/^\d+$/.test(tok[n - 3]) || !isNum(tok[n - 2]) || !/^\d+$/.test(tok[n - 1])) continue;
+      const idh = tok[0];
+      const known = detail.get(idh);
+      let bi = -1;
+      if (known) for (let j = n - 4; j >= 1; j--) if (known.has(kcKey(tok[j]))) { bi = j; break; }
+      if (bi < 0) {
+        /* geen detailregel gevonden: neem het laatste token met een cijfer vóór de aantallen */
+        for (let j = n - 4; j >= 2; j--) if (/^[A-Z0-9][A-Z0-9\-\/]{3,}$/i.test(tok[j]) && /\d/.test(tok[j])) { bi = j; break; }
       }
+      if (bi < 1) continue;
+      const batch = tok[bi];
+      const unit = known && known.get(kcKey(batch)) ? known.get(kcKey(batch)) : '';
+      rows.push({
+        del: '', idh, batch, desc: tok.slice(1, bi).join(' '),
+        qty: parseInt(tok[n - 3], 10),
+        unit,
+        colli: parseFloat(String(tok[n - 2]).replace(/\./g, '').replace(',', '.')),
+        gross: null, net: null, tka: null
+      });
     }
   }
   return { rows, ok: rows.length > 0, container, master };
@@ -5201,7 +5226,9 @@ function kcCompare(eigen, klant) {
     /* aantal alleen vergelijken als de eenheden overeenkomen (KG met KG, stuks met stuks/CON);
        verschillende eenheden numeriek vergelijken is zinloos en geeft vals alarm */
     if (e.qty != null && c.qty != null && (!ue || !uc || ue === uc)) {
-      if (!kcEqF(e.qty, c.qty)) d.push(['aantal', e.qty, c.qty, ue || uc || '']);
+      /* stuks zijn hele aantallen: daar telt elk stuk verschil (de 0,2%-marge is voor gewichten) */
+      const stuks = (ue || uc) === 'ST';
+      if (stuks ? Math.abs(e.qty - c.qty) > KC_TOL : !kcEqF(e.qty, c.qty)) d.push(['aantal', e.qty, c.qty, ue || uc || '']);
     }
     if (e.net != null && c.net != null) {
       if (!kcEqF(e.net, c.net)) d.push(['netto gewicht', e.net, c.net, 'kg']);

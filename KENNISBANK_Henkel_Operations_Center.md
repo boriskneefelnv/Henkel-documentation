@@ -168,6 +168,8 @@ Daarna wordt per set+IDH **naar boven afgerond** op hele colli: floor per regel,
 
 **Stap 1:** de eigen zending-Excel (WMS) tegenover de Excel van de klant (SAP).
 **Stap 2:** de WMS-picklijst (PDF, blok "Controle van de order") tegenover SAP.
+- Lezer van het controleblok: regel = `<artikel> <omschrijving> <partij> [opmerking] <#stuks> <#collo> <#pallets>`. Artikelnummers mogen 3–9 cijfers hebben (72181, 28495) en partijnummers alfanumeriek zijn (E162087950, SB64142037, L262173315). De partij wordt herkend via de detailregels ("MV 0 <artikel> <partij> 1 EP 39,0 KA 1560 ST"), die ook de eenheid (ST/KG) leveren. Vroeger accepteerde de lezer alleen 10-cijferige batches en 6–7-cijferige artikelen; daardoor werd bijv. dossier 60928883 als 1 regel ingelezen en gaf stap 2 vals alarm.
+- Aantallen in stuks worden exact vergeleken (elk stuk verschil telt); de 0,2%-marge geldt alleen voor gewichten/KG.
 
 - De rol van een bestand wordt herkend aan de kolomkoppen:
   - Eigen versie: Reference/Delivery + IDH + Batch.
