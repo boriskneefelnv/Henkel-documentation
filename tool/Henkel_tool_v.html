@@ -303,6 +303,13 @@ tslib/tslib.es6.js:
   .brand h1 em{font-style:normal; color:var(--blue);}
   .brand p{font-size:.6rem; color:var(--lgrey); letter-spacing:.22em; text-transform:uppercase; margin-top:3px; font-weight:bold; font-family:var(--disp);}
   .head-controls{margin-left:auto; display:flex; align-items:center; gap:20px; flex-wrap:wrap;}
+  .btn-reset{display:inline-flex; align-items:center; gap:7px; padding:9px 14px; border:1px solid var(--hair); border-radius:8px;
+    background:#fff; color:var(--navy); font:bold .78rem var(--disp); letter-spacing:.02em; cursor:pointer; white-space:nowrap;
+    transition:background .15s, color .15s, border-color .15s;}
+  .btn-reset:hover{border-color:var(--blue); color:var(--blue);}
+  .btn-reset.zeker{background:#B42318; border-color:#B42318; color:#fff;}
+  .btn-reset.klaar{background:#2E7D32; border-color:#2E7D32; color:#fff;}
+  .btn-reset svg{flex:none;}
   .field label{display:block; font-size:.6rem; letter-spacing:.22em; text-transform:uppercase; color:var(--blue); font-weight:bold; font-family:var(--disp); margin-bottom:6px;}
   .field input[type=text]{
     background:var(--white); border:1px solid var(--hair); color:var(--txt); font-family:var(--sans);
@@ -818,6 +825,10 @@ tslib/tslib.es6.js:
     <h1>Henkel <em>Operations</em> Center</h1>
     <p>Neele-Vat &times; Henkel &middot; export operations</p>
   </div>
+  <button class="btn-reset" id="btnReset" type="button" title="Gooit alle ingelezen bestanden en ingevulde gegevens van de module die nu open staat eruit. Andere modules en de DG-masterdata blijven staan.">
+    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"></path><polyline points="3 3 3 9 9 9"></polyline></svg>
+    <span id="btnResetTxt">Reset module</span>
+  </button>
   <div class="head-controls">
     <div class="field">
       <label for="shipname">Zendingnaam / referentie</label>
@@ -13227,6 +13238,114 @@ function obMaakMail() {
   /* Voor regressietests en toekomstige hergebruikers: alleen pure compare-helpers. */
   window._certCheck={parseGuideXml:cParseGuideXml,detectDraft:cDetectDraft,requirements:cReqs,checkOne:cCheckOne,compare:cCompare,state:st};
   render();
+})();
+</script>
+
+<script>
+/* ===== Reset per module ========================================================
+   Eén vaste knop rechtsboven. Hij maakt alleen de module leeg die op dat moment
+   open staat: alle ingelezen bestanden, uitkomsten en ingevulde velden gaan eruit,
+   zodat je weer schoon begint. Andere modules houden hun bestanden, en blijvende
+   gegevens (DG-masterdata, instellingen) worden niet aangeraakt. Eerste klik vraagt
+   om bevestiging, tweede klik (binnen 4 seconden) voert de reset uit. */
+(function () {
+  'use strict';
+  var PAGINAS = ['Draai', 'Booking', 'Klant', 'Dgd', 'Maak', 'To', 'Bl', 'Fs', 'Ob', 'Cert', 'Dash'];
+  var NAMEN = { Draai: 'Draai & Controle', Booking: 'Booking confirmation', Klant: 'Klantcontrole',
+    Dgd: 'DGD controleren', Maak: 'DGD maken', To: 'CMR / Transportopdracht', Bl: 'Documenten delen',
+    Fs: 'Full set', Ob: 'Ocean boeken', Cert: 'CVO / EUR.1 check', Dash: 'Dashboard' };
+
+  function actief() {
+    for (var i = 0; i < PAGINAS.length; i++) {
+      var p = document.getElementById('page' + PAGINAS[i]);
+      if (p && !p.hidden) return PAGINAS[i];
+    }
+    return null;
+  }
+  function verberg(id) { var n = document.getElementById(id); if (n) { n.hidden = true; n.innerHTML = ''; } }
+  function klik(id) { var b = document.getElementById(id); if (b) b.click(); }
+
+  var RESET = {
+    Draai: function () {
+      state.files = [];
+      derived = null;
+      resetTemplate();
+      el('palCount').value = ''; el('palIncl').value = '';
+      el('plNaamChk').checked = false; plNaamAkkoord = null; palletMailText = '';
+      state.eur1Img = null;
+      verberg('skipNote');
+      recompute();
+      renderMailPanel();
+    },
+    Booking: function () {
+      state.bookings = [];
+      renderBookings();
+    },
+    Klant: function () {
+      state.kcEigen = null; state.kcKlant = null; state.kcPick = null;
+      state.kcUnknown = null; state.kcMail = null; state.kcLast = null;
+      el('kcBusy').hidden = true;
+      kcDrops(); kcRender();
+    },
+    Dgd: function () {
+      state.dgds = [];
+      el('dgdBusy').hidden = true; verberg('dgdNote');
+      dgdRender();
+    },
+    Maak: function () {
+      /* precies de beginstand: deze velden bestaan bij het opstarten nog niet */
+      ['maak', 'maakRows', 'maakOpts', 'maakCmr', 'maakDgdHdr', 'maakPlNet', 'maakUnPick',
+       'maakUnTexts', 'maakFlpBron', 'maakFlpBound', 'maakMsds'].forEach(function (k) { delete state[k]; });
+      el('maakBusy').hidden = true; verberg('maakNote');
+      maakRender();
+    },
+    To: function () {
+      state.to = null;
+      el('toBusy').hidden = true; verberg('toNote');
+      toRender();
+    },
+    Bl: function () { klik('blReset'); },
+    Fs: function () { klik('fsReset'); },
+    Ob: function () { klik('obReset'); },
+    Cert: function () { klik('certReset'); },
+    Dash: function () {
+      /* het dashboard bewaart de ingelezen planning in de browser; die gaat eruit
+         en het dashboard start opnieuw, leeg */
+      try { localStorage.removeItem('henkel_snapshot_v1'); } catch (e) {}
+      var fr = document.getElementById('dashFrame');
+      if (fr) fr.srcdoc = fr.srcdoc;
+    }
+  };
+
+  var knop = document.getElementById('btnReset'), txt = document.getElementById('btnResetTxt');
+  var wacht = null, terug = null;
+  function standaard() {
+    knop.classList.remove('zeker', 'klaar');
+    txt.textContent = 'Reset module';
+    wacht = null;
+  }
+  knop.addEventListener('click', function () {
+    var m = actief();
+    if (!m || !RESET[m]) return;
+    if (terug) { clearTimeout(terug); terug = null; }
+    if (!wacht || wacht !== m) {
+      wacht = m;
+      knop.classList.remove('klaar'); knop.classList.add('zeker');
+      txt.textContent = NAMEN[m] + ' leegmaken? Klik nogmaals';
+      terug = setTimeout(standaard, 4000);
+      return;
+    }
+    try { RESET[m](); } catch (e) { console.error('Reset ' + m + ' mislukt', e); }
+    wacht = null;
+    knop.classList.remove('zeker'); knop.classList.add('klaar');
+    txt.textContent = 'Leeggemaakt ✓';
+    terug = setTimeout(standaard, 1800);
+    window.scrollTo(0, 0);
+  });
+  /* van module wisselen breekt een openstaande bevestiging af */
+  document.querySelectorAll('.tabbtn').forEach(function (b) {
+    b.addEventListener('click', function () { if (terug) clearTimeout(terug); terug = null; standaard(); });
+  });
 })();
 </script>
 

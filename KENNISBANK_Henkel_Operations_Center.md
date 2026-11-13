@@ -31,6 +31,12 @@ Ingebedde binaire assets: Neele-Vat- en Henkel-logo (sidebar), `KC_LOGO` (Henkel
 - `buildEml()` maakt een `.eml` met `X-Unsent: 1`, base64-body en een RFC 2047-onderwerp. Outlook (klassiek) opent dat als concept met aan/cc/bijlagen al ingevuld. Nieuwe Outlook opent .eml alleen-lezen.
 - `copyText()` is een klembord-functie met een `execCommand`-fallback.
 
+### Reset module (knop rechts naast de titel)
+- Eén vaste knop "Reset module" in de kopbalk, in elke module zichtbaar. Hij maakt alleen de module leeg die open staat: ingelezen bestanden, uitkomsten, meldingen en ingevulde velden. Andere modules houden hun bestanden.
+- Eerste klik vraagt bevestiging ("<module> leegmaken? Klik nogmaals", 4 s geldig; van tab wisselen breekt af), tweede klik voert uit ("Leeggemaakt ✓").
+- Per module: Draai (`state.files`, `resetTemplate()`, pallets, PL-naamkeuze, `recompute()`), Booking (`state.bookings`), Klantcontrole (`state.kc*`), DGD controleren (`state.dgds`), DGD maken (alle `state.maak*` verwijderd, zoals bij opstarten), CMR/Transportopdracht (`state.to`, gedeeld), Documenten delen / Full set / Ocean boeken / CVO-EUR.1 (roept hun bestaande "Leegmaken"-knop aan), Dashboard (verwijdert `henkel_snapshot_v1` en start het dashboard leeg opnieuw).
+- Blijvende gegevens blijven staan: DG-masterdata (`henkel_dg_masterdata_v1`) en instellingen.
+
 ---
 
 ## 2. Module 01 — Draai & Controle
